@@ -1,0 +1,113 @@
+from django.shortcuts import render
+from rest_framework import generics, permissions, status
+from rest_framework.response import Response
+from rest_framework_simplejwt.views import TokenObtainPairView
+from django.contrib.auth.models import User
+from .serializers import RegisterSerializer, UserSerializer, CCUserMailInfoSerializer
+from .models import CCUserMailInfo
+import logging
+
+# 获取logger
+logger = logging.getLogger('core')
+
+# Create your views here.
+
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    permission_classes = (permissions.AllowAny,)
+    serializer_class = RegisterSerializer
+
+    def perform_create(self, serializer):
+        logger.info(f"Creating new user: {serializer.validated_data.get('username')}")
+        try:
+            user = serializer.save()
+            logger.info(f"Successfully created user: {user.username}")
+        except Exception as e:
+            logger.error(f"Error creating user: {str(e)}")
+            raise
+
+class UserDetailView(generics.RetrieveUpdateAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get_object(self):
+        logger.debug(f"Retrieving user details for: {self.request.user.username}")
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+        logger.info(f"Updating user details for: {request.user.username}")
+        try:
+            response = super().update(request, *args, **kwargs)
+            logger.info(f"Successfully updated user: {request.user.username}")
+            return response
+        except Exception as e:
+            logger.error(f"Error updating user: {str(e)}")
+            raise
+
+class CCUserMailInfoViewSet(generics.GenericAPIView):
+    queryset = CCUserMailInfo.objects.all()
+    serializer_class = CCUserMailInfoSerializer
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request):
+        """获取邮件信息列表"""
+        logger.debug("Retrieving all mail info")
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        """创建邮件信息"""
+        logger.info(f"Creating mail info with data: {request.data}")
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            logger.info(f"Successfully created mail info for: {request.data.get('email')}")
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        logger.error(f"Failed to create mail info: {serializer.errors}")
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class CCUserMailInfoDetailView(generics.GenericAPIView):
+    queryset = CCUserMailInfo.objects.all()
+    serializer_class = CCUserMailInfoSerializer
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request, pk):
+        """获取单个邮件信息"""
+        try:
+            instance = self.get_queryset().get(pk=pk)
+            logger.debug(f"Retrieving mail info for id: {pk}")
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data)
+        except CCUserMailInfo.DoesNotExist:
+            logger.error(f"Mail info not found for id: {pk}")
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    def put(self, request, pk):
+        """更新邮件信息"""
+        try:
+            instance = self.get_queryset().get(pk=pk)
+            logger.info(f"Updating mail info for id: {pk}")
+            serializer = self.get_serializer(instance, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                logger.info(f"Successfully updated mail info for id: {pk}")
+                return Response(serializer.data)
+            logger.error(f"Failed to update mail info: {serializer.errors}")
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except CCUserMailInfo.DoesNotExist:
+            logger.error(f"Mail info not found for id: {pk}")
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, pk):
+        """删除邮件信息"""
+        try:
+            instance = self.get_queryset().get(pk=pk)
+            logger.info(f"Deleting mail info for id: {pk}")
+            instance.delete()
+            logger.info(f"Successfully deleted mail info for id: {pk}")
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except CCUserMailInfo.DoesNotExist:
+            logger.error(f"Mail info not found for id: {pk}")
+            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
