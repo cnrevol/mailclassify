@@ -8,12 +8,14 @@ from .serializers import (
     UserSerializer, 
     CCUserMailInfoSerializer,
     CCAzureOpenAISerializer,
-    CCOpenAISerializer
+    CCOpenAISerializer,
+    CCEmailSerializer
 )
-from .models import CCUserMailInfo, CCAzureOpenAI, CCOpenAI
+from .models import CCUserMailInfo, CCAzureOpenAI, CCOpenAI, CCEmail
 from .llm_factory import LLMFactory
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
+from .services.mail_service import OutlookMailService
 import logging
 
 # 获取logger
@@ -161,6 +163,72 @@ class LLMCompletionView(LLMBaseView):
             return Response({'response': response})
         except Exception as e:
             logger.error(f"Error getting completion: {str(e)}")
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class OutlookMailView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request):
+        """
+        获取邮件列表
+        
+        参数:
+        - email: 邮箱地址
+        - limit: 获取的邮件数量（可选）
+        - hours: 获取指定小时数内的邮件（可选）
+        """
+        try:
+            email = request.query_params.get('email')
+            if not email:
+                return Response(
+                    {'error': 'Email parameter is required'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 获取用户邮件配置
+            user_mail = CCUserMailInfo.objects.filter(email=email, is_active=True).first()
+            if not user_mail:
+                return Response(
+                    {'error': 'Email configuration not found'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # 获取查询参数
+            limit = request.query_params.get('limit')
+            hours = request.query_params.get('hours')
+
+            # 转换参数类型
+            if limit:
+                try:
+                    limit = int(limit)
+                except ValueError:
+                    return Response(
+                        {'error': 'Invalid limit parameter'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            if hours:
+                try:
+                    hours = int(hours)
+                except ValueError:
+                    return Response(
+                        {'error': 'Invalid hours parameter'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            # 获取邮件
+            mail_service = OutlookMailService(user_mail)
+            emails = mail_service.fetch_emails(limit=limit, hours=hours)
+
+            # 序列化结果
+            serializer = CCEmailSerializer(emails, many=True)
+            return Response(serializer.data)
+
+        except Exception as e:
+            logger.error(f"Error fetching emails: {str(e)}")
             return Response(
                 {'error': str(e)}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

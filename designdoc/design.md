@@ -31,12 +31,18 @@
         模型的链接信息key，url等，定义到.env，通过setting取得。
 
 
-    1. 通过邮件地址，读取outlook邮件接口。
-        参数 邮件地址，最新邮件个数-读取这个个数的最新邮件，时间（小时）读取这个时间范围内的最新邮件。
-        返回值，邮件类，包含邮件关键信息，包括但不限于，邮件id,邮件标题，内容，发信地址，收信时间，
-    使用azure graph api 读取outlook邮件，认证需要的 azure client id,azure client secret, 从数据库表中取得，表名 cc_user_info, 字段包括userid, client_id, cilent_secret.
-    读取过的邮件标记为已读。
+    后端独立做一个邮件处理的django的服务。要实现一些邮件处理的接口。
+    1. 设计实现一个 通过邮件地址，读取outlook邮件接口。
 
+        参数： 邮件地址，邮件个数--读取这个个数的最新邮件，时间（小时）读取这个时间范围内的最新邮件。
+        返回值，邮件类对象，包含邮件关键信息，包括但不限于，邮件id,邮件标题，内容，发信地址，收信时间，
+    使用azure graph api 读取outlook邮件，认证需要的 azure client id,azure client secret, 从数据库表中取得，表名 cc_user_info, 字段包括userid, client_id, cilent_secret.
+    读取过的邮件标记为已读，目的是下次不再重复处理。
+
+
+
+ 实现一个前端react工程，用来调用后端的django接口，
+    
 
     2.对邮件内容分类的接口
         参数  

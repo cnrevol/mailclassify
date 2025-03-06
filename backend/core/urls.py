@@ -11,7 +11,8 @@ from .views import (
     CCUserMailInfoDetailView,
     AzureOpenAIViewSet,
     OpenAIViewSet,
-    LLMCompletionView
+    LLMCompletionView,
+    OutlookMailView
 )
 
 app_name = 'core'
@@ -36,6 +37,9 @@ urlpatterns = [
     path('llm/<str:provider>/<int:instance_id>/completion/', 
          LLMCompletionView.as_view(), 
          name='llm_completion'),
+
+    # 邮件相关的URL
+    path('mail/outlook/', OutlookMailView.as_view(), name='outlook_mail'),
 
     # 包含自动生成的路由
     path('', include(router.urls)),

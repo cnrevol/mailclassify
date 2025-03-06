@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
-from .models import CCUserMailInfo, CCAzureOpenAI, CCOpenAI
+from .models import CCUserMailInfo, CCAzureOpenAI, CCOpenAI, CCEmail
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,12 +35,24 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ('id', 'username', 'email', 'first_name', 'last_name')
 
+class CCEmailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CCEmail
+        fields = (
+            'id', 'message_id', 'subject', 'sender', 'received_time',
+            'content', 'is_read', 'categories', 'importance',
+            'has_attachments', 'created_at', 'updated_at'
+        )
+        read_only_fields = fields
+
 class CCUserMailInfoSerializer(serializers.ModelSerializer):
     class Meta:
         model = CCUserMailInfo
-        fields = ('id', 'email', 'client_id', 'client_secret', 'password', 'is_active', 'created_at', 'updated_at')
+        fields = (
+            'id', 'email', 'client_id', 'client_secret', 'tenant_id',
+            'last_sync_time', 'is_active', 'created_at', 'updated_at'
+        )
         extra_kwargs = {
-            'password': {'write_only': True},
             'client_secret': {'write_only': True},
             'created_at': {'read_only': True},
             'updated_at': {'read_only': True}

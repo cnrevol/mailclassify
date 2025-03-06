@@ -68,11 +68,16 @@ class CCOpenAI(CCLLMBase):
 class CCUserMailInfo(CCBaseModel):
     """
     用户邮件信息表
+    存储用户的邮件认证信息
     """
     email = models.EmailField(_('邮箱地址'), max_length=255, unique=True)
-    client_id = models.CharField(_('客户端ID'), max_length=255)
-    client_secret = models.CharField(_('客户端密钥'), max_length=255)
-    password = models.CharField(_('登录密码'), max_length=255)
+    client_id = models.CharField(_('Azure客户端ID'), max_length=255)
+    client_secret = models.CharField(_('Azure客户端密钥'), max_length=255)
+    tenant_id = models.CharField(_('Azure租户ID'), max_length=255, null=True, blank=True)
+    access_token = models.TextField(_('访问令牌'), null=True, blank=True)
+    refresh_token = models.TextField(_('刷新令牌'), null=True, blank=True)
+    token_expires = models.DateTimeField(_('令牌过期时间'), null=True, blank=True)
+    last_sync_time = models.DateTimeField(_('最后同步时间'), null=True, blank=True)
     is_active = models.BooleanField(_('是否激活'), default=True)
 
     class Meta:
@@ -86,3 +91,28 @@ class CCUserMailInfo(CCBaseModel):
     def save(self, *args, **kwargs):
         logger.info(f"{'Creating' if not self.pk else 'Updating'} mail info for: {self.email}")
         super().save(*args, **kwargs)
+
+class CCEmail(CCBaseModel):
+    """
+    邮件内容表
+    存储已处理的邮件信息
+    """
+    user_mail = models.ForeignKey(CCUserMailInfo, on_delete=models.CASCADE, related_name='emails')
+    message_id = models.CharField(_('邮件ID'), max_length=255)
+    subject = models.CharField(_('邮件主题'), max_length=1000)
+    sender = models.EmailField(_('发件人'), max_length=255)
+    received_time = models.DateTimeField(_('接收时间'))
+    content = models.TextField(_('邮件内容'))
+    is_read = models.BooleanField(_('是否已读'), default=False)
+    categories = models.CharField(_('邮件分类'), max_length=255, blank=True)
+    importance = models.CharField(_('重要性'), max_length=50, default='normal')
+    has_attachments = models.BooleanField(_('是否有附件'), default=False)
+
+    class Meta:
+        db_table = 'cc_email'
+        verbose_name = _('邮件内容')
+        verbose_name_plural = _('邮件内容')
+        ordering = ['-received_time']
+
+    def __str__(self):
+        return f"{self.subject} ({self.received_time})"
