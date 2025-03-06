@@ -76,7 +76,7 @@ DATABASES = {
         'HOST': config('DB_HOST'),
         'PORT': config('DB_PORT', cast=int),
         'OPTIONS': {
-            'options': '-c search_path=asset'
+            'options': f'-c search_path={config("DB_SCHEMA", default="public")}'
         },
     }
 }
