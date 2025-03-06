@@ -22,7 +22,10 @@
     
 
     
-    1. 设计实现一个管理LLM实例的工厂方法，要求，传入llm名，可以得到这个llm的类对象。
+    1. 设计实现一个管理LLM实例的工厂方法，
+        要求，传入llm名，可以得到这个llm的类对象。
+        并且提供，取得llm实例定义信息的方法，为了得到定义信息，初始化某种专用模型对象。
+        提供模型执行的接口方法。
         需要支持 azure openai，deepseek，doubao，openai，未来可扩展。
         类对象提供： model_id,endpoint(url),api_key,api_version,temperature,等等）
         模型的链接信息key，url等，定义到.env，通过setting取得。

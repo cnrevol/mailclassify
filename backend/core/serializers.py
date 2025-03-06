@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
-from .models import CCUserMailInfo
+from .models import CCUserMailInfo, CCAzureOpenAI, CCOpenAI
 import logging
 
 logger = logging.getLogger(__name__)
@@ -52,4 +52,49 @@ class CCUserMailInfoSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         logger.info(f"Updating mail info for: {instance.email}")
+        return super().update(instance, validated_data)
+
+class CCAzureOpenAISerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CCAzureOpenAI
+        fields = (
+            'id', 'name', 'model_id', 'endpoint', 'api_version',
+            'temperature', 'max_tokens', 'is_active', 'provider',
+            'description', 'deployment_name', 'resource_name',
+            'created_at', 'updated_at'
+        )
+        extra_kwargs = {
+            'api_key': {'write_only': True},
+            'created_at': {'read_only': True},
+            'updated_at': {'read_only': True}
+        }
+
+    def create(self, validated_data):
+        logger.info(f"Creating new Azure OpenAI config: {validated_data.get('name')}")
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        logger.info(f"Updating Azure OpenAI config: {instance.name}")
+        return super().update(instance, validated_data)
+
+class CCOpenAISerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CCOpenAI
+        fields = (
+            'id', 'name', 'model_id', 'endpoint', 'api_version',
+            'temperature', 'max_tokens', 'is_active', 'provider',
+            'description', 'organization_id', 'created_at', 'updated_at'
+        )
+        extra_kwargs = {
+            'api_key': {'write_only': True},
+            'created_at': {'read_only': True},
+            'updated_at': {'read_only': True}
+        }
+
+    def create(self, validated_data):
+        logger.info(f"Creating new OpenAI config: {validated_data.get('name')}")
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        logger.info(f"Updating OpenAI config: {instance.name}")
         return super().update(instance, validated_data) 

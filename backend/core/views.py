@@ -3,8 +3,17 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth.models import User
-from .serializers import RegisterSerializer, UserSerializer, CCUserMailInfoSerializer
-from .models import CCUserMailInfo
+from .serializers import (
+    RegisterSerializer, 
+    UserSerializer, 
+    CCUserMailInfoSerializer,
+    CCAzureOpenAISerializer,
+    CCOpenAISerializer
+)
+from .models import CCUserMailInfo, CCAzureOpenAI, CCOpenAI
+from .llm_factory import LLMFactory
+from rest_framework.views import APIView
+from rest_framework.viewsets import ModelViewSet
 import logging
 
 # 获取logger
@@ -111,3 +120,48 @@ class CCUserMailInfoDetailView(generics.GenericAPIView):
         except CCUserMailInfo.DoesNotExist:
             logger.error(f"Mail info not found for id: {pk}")
             return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+
+class LLMBaseView(generics.GenericAPIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get_llm_instance(self, provider: str, instance_id: int):
+        return LLMFactory.get_instance_by_id(provider, instance_id)
+
+class AzureOpenAIViewSet(ModelViewSet):
+    queryset = CCAzureOpenAI.objects.all()
+    serializer_class = CCAzureOpenAISerializer
+    permission_classes = (permissions.IsAuthenticated,)
+
+class OpenAIViewSet(ModelViewSet):
+    queryset = CCOpenAI.objects.all()
+    serializer_class = CCOpenAISerializer
+    permission_classes = (permissions.IsAuthenticated,)
+
+class LLMCompletionView(LLMBaseView):
+    def post(self, request, provider, instance_id):
+        """
+        获取LLM补全结果
+        """
+        prompt = request.data.get('prompt')
+        if not prompt:
+            return Response(
+                {'error': 'Prompt is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        llm = self.get_llm_instance(provider, instance_id)
+        if not llm:
+            return Response(
+                {'error': 'LLM instance not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            response = llm.get_completion(prompt)
+            return Response({'response': response})
+        except Exception as e:
+            logger.error(f"Error getting completion: {str(e)}")
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
