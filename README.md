@@ -13,3 +13,6 @@ cd C:\worksapce\aifree\ContentsClassifyProject\mailclassify\backend
 
 # 3. 启动服务器
 python manage.py runserver
+
+python manage.py makemigrations
+python manage.py migrate
