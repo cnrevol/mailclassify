@@ -78,7 +78,8 @@ class OutlookMailService:
             params = {
                 '$select': 'id,subject,sender,receivedDateTime,body,categories,importance,hasAttachments',
                 '$orderby': 'receivedDateTime DESC',
-                '$top': limit if limit else 50
+                '$top': limit if limit else 50,
+                '$expand': 'attachments'  # 添加附件展开
             }
             if filter_params:
                 params['$filter'] = ' and '.join(filter_params)
@@ -119,6 +120,12 @@ class OutlookMailService:
                     has_attachments=email_data['hasAttachments'],
                     is_read=True
                 )
+
+                # 更新附件信息
+                if email_data['hasAttachments']:
+                    attachments = email_data.get('attachments', [])
+                    email.update_attachment_info(attachments)
+                    email.save()
 
                 # 标记为已读
                 self._mark_as_read(email_data['id'])

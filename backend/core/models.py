@@ -92,6 +92,32 @@ class CCUserMailInfo(CCBaseModel):
         logger.info(f"{'Creating' if not self.pk else 'Updating'} mail info for: {self.email}")
         super().save(*args, **kwargs)
 
+class CCEmailClassifyRule(CCBaseModel):
+    """
+    邮件分类规则表
+    """
+    name = models.CharField(_('规则名称'), max_length=100)
+    description = models.TextField(_('规则描述'))
+    sender_domains = models.JSONField(_('发件人域名列表'))
+    subject_keywords = models.JSONField(_('主题关键词列表'))
+    body_keywords = models.JSONField(_('正文关键词列表'))
+    min_attachments = models.IntegerField(_('最小附件数'), default=0)
+    max_attachments = models.IntegerField(_('最大附件数'), null=True, blank=True)
+    min_attachment_size = models.BigIntegerField(_('最小附件大小'), default=0)
+    max_attachment_size = models.BigIntegerField(_('最大附件大小'), null=True, blank=True)
+    classification = models.CharField(_('分类'), max_length=100)
+    priority = models.IntegerField(_('优先级'), default=0)
+    is_active = models.BooleanField(_('是否激活'), default=True)
+
+    class Meta:
+        db_table = 'cc_emailclassifyrule'
+        verbose_name = _('邮件分类规则')
+        verbose_name_plural = _('邮件分类规则')
+        ordering = ['-priority']
+
+    def __str__(self):
+        return f"{self.name} ({self.classification})"
+
 class CCEmail(CCBaseModel):
     """
     邮件内容表
@@ -107,6 +133,9 @@ class CCEmail(CCBaseModel):
     categories = models.CharField(_('邮件分类'), max_length=255, blank=True)
     importance = models.CharField(_('重要性'), max_length=50, default='normal')
     has_attachments = models.BooleanField(_('是否有附件'), default=False)
+    attachment_count = models.IntegerField(_('附件数量'), default=0)
+    total_attachment_size = models.BigIntegerField(_('附件总大小(字节)'), default=0)
+    attachments_info = models.JSONField(_('附件详细信息'), default=list, blank=True)
 
     class Meta:
         db_table = 'cc_email'
@@ -116,3 +145,23 @@ class CCEmail(CCBaseModel):
 
     def __str__(self):
         return f"{self.subject} ({self.received_time})"
+
+    def update_attachment_info(self, attachments: list) -> None:
+        """
+        更新附件信息
+        
+        Args:
+            attachments: 附件列表，每个附件应包含 name, size, content_type 等信息
+        """
+        self.has_attachments = bool(attachments)
+        self.attachment_count = len(attachments)
+        self.total_attachment_size = sum(a.get('size', 0) for a in attachments)
+        self.attachments_info = [
+            {
+                'name': a.get('name', ''),
+                'size': a.get('size', 0),
+                'content_type': a.get('contentType', ''),
+                'id': a.get('id', '')
+            }
+            for a in attachments
+        ]
