@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 import logging
+from typing import Optional
 
 logger = logging.getLogger('core')
 
@@ -18,49 +19,48 @@ class CCBaseModel(models.Model):
     def __str__(self):
         return f"{self.__class__.__name__}_{self.pk}"
 
-class CCLLMBase(CCBaseModel):
-    """
-    LLM基础模型表
-    """
-    name = models.CharField(_('模型名称'), max_length=100, unique=True)
-    model_id = models.CharField(_('模型ID'), max_length=100)
-    endpoint = models.URLField(_('API端点'), max_length=255)
-    api_key = models.CharField(_('API密钥'), max_length=255)
-    api_version = models.CharField(_('API版本'), max_length=50, null=True, blank=True)
-    temperature = models.FloatField(_('温度参数'), default=0.7)
-    max_tokens = models.IntegerField(_('最大token数'), default=2000)
-    is_active = models.BooleanField(_('是否激活'), default=True)
-    provider = models.CharField(_('提供商'), max_length=50)
-    description = models.TextField(_('描述'), blank=True)
+class CCLLMBase(models.Model):
+    """LLM基础模型"""
+    id: int
+    name = models.CharField(max_length=100, verbose_name="名称")
+    model_id = models.CharField(max_length=100, verbose_name="模型ID")
+    endpoint = models.CharField(max_length=200, verbose_name="API端点")
+    api_key = models.CharField(max_length=200, verbose_name="API密钥")
+    api_version = models.CharField(max_length=50, verbose_name="API版本")
+    temperature = models.FloatField(default=0.7, verbose_name="温度")
+    max_tokens = models.IntegerField(default=2000, verbose_name="最大token数")
+    is_active = models.BooleanField(default=True, verbose_name="是否启用")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+
+    def chat(self, messages: list, **kwargs) -> Optional[str]:
+        """聊天方法"""
+        raise NotImplementedError("Subclasses must implement chat method")
 
     class Meta:
         abstract = True
+        verbose_name = "LLM基础模型"
+        verbose_name_plural = verbose_name
 
 class CCAzureOpenAI(CCLLMBase):
-    """
-    Azure OpenAI模型配置
-    """
-    deployment_name = models.CharField(_('部署名称'), max_length=100)
-    resource_name = models.CharField(_('资源名称'), max_length=100)
+    """Azure OpenAI模型"""
+    deployment_name = models.CharField(max_length=100, verbose_name="部署名称")
+    resource_name = models.CharField(max_length=100, verbose_name="资源名称")
 
     class Meta:
-        db_table = 'cc_azure_openai'
-        verbose_name = _('Azure OpenAI配置')
-        verbose_name_plural = _('Azure OpenAI配置')
+        verbose_name = "Azure OpenAI"
+        verbose_name_plural = verbose_name
 
     def __str__(self):
         return f"Azure-{self.name}"
 
 class CCOpenAI(CCLLMBase):
-    """
-    OpenAI模型配置
-    """
-    organization_id = models.CharField(_('组织ID'), max_length=100, null=True, blank=True)
+    """OpenAI模型"""
+    organization_id = models.CharField(max_length=100, verbose_name="组织ID", null=True, blank=True)
 
     class Meta:
-        db_table = 'cc_openai'
-        verbose_name = _('OpenAI配置')
-        verbose_name_plural = _('OpenAI配置')
+        verbose_name = "OpenAI"
+        verbose_name_plural = verbose_name
 
     def __str__(self):
         return f"OpenAI-{self.name}"

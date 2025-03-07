@@ -5,3 +5,5 @@
 /backend/core/__pycache__
 /backend/core/migrations/__pycache__
 /backend/logs
+/backend/core/management/commands/__pycache__
+/backend/core/services/__pycache__

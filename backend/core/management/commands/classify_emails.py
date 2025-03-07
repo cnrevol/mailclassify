@@ -1,9 +1,15 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import timedelta
+import logging
+import sys
+import os
+
+# Add the project root to the Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+
 from core.models import CCEmail
 from core.services.email_classifier import EmailClassifier
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +21,13 @@ class Command(BaseCommand):
             '--hours',
             type=int,
             help='处理指定小时数内的邮件'
+        )
+        parser.add_argument(
+            '--method',
+            type=str,
+            choices=['decision_tree', 'llm', 'bert', 'fasttext'],
+            default='decision_tree',
+            help='分类方法: decision_tree, llm, bert, fasttext'
         )
 
     def handle(self, *args, **options):
@@ -32,9 +45,10 @@ class Command(BaseCommand):
             ).order_by('-received_time'))
 
             self.stdout.write(f"Found {len(emails)} unclassified emails")
+            self.stdout.write(f"Using classification method: {options['method']}")
 
             # 进行分类
-            results = EmailClassifier.classify_emails(emails)
+            results = EmailClassifier.classify_emails(emails, method=options['method'])
 
             # 输出分类结果
             for classification, emails_data in results.items():
@@ -49,7 +63,8 @@ class Command(BaseCommand):
                     
                     self.stdout.write(
                         f"- {email.subject} ({email.sender})\n"
-                        f"  Rule: {data['rule_name']}\n"
+                        f"  Method: {options['method']}\n"
+                        f"  Rule/Model: {data['rule_name']}\n"
                         f"  Reason: {data['explanation']}"
                     )
 
