@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Button, Input, Avatar, Dropdown, Space, Modal, Tooltip } from 'antd';
+import { Layout, Menu, Button, Input, Avatar, Dropdown, Space, Modal, Tooltip, Select, message } from 'antd';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -8,12 +8,17 @@ import {
   SettingOutlined,
   LogoutOutlined,
   SendOutlined,
-  AppstoreOutlined
+  AppstoreOutlined,
+  RobotOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import MailConfigPage from '../mail/MailConfigPage';
+import ReactMarkdown from 'react-markdown';
 
 const { Header, Sider, Content } = Layout;
+const { Option } = Select;
+
+type IconComponent = React.ForwardRefExoticComponent<any>;
 
 const ChatPage: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
@@ -21,6 +26,10 @@ const ChatPage: React.FC = () => {
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchValue, setSearchValue] = useState('');
   const [selectedMenu, setSelectedMenu] = useState<string>('');
+  const [selectedModel, setSelectedModel] = useState('azure-gpt4');
+  const [messages, setMessages] = useState<Array<{role: string, content: string, type?: string}>>([]);
+  const [loading, setLoading] = useState(false);
+  const [hasMessages, setHasMessages] = useState(false);
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -28,15 +37,23 @@ const ChatPage: React.FC = () => {
     navigate('/login');
   };
 
+  const renderIcon = (Icon: IconComponent, size: 'small' | 'default' | 'large' = 'default') => {
+    const style = {
+      fontSize: size === 'small' ? 14 : size === 'large' ? 20 : 16,
+      color: '#595959'
+    };
+    return <Icon style={style} />;
+  };
+
   const userMenuItems = [
     {
       key: 'settings',
-      icon: <SettingOutlined style={{ fontSize: '16px' }} />,
+      icon: renderIcon(SettingOutlined),
       label: '设置',
     },
     {
       key: 'logout',
-      icon: <LogoutOutlined style={{ fontSize: '16px' }} />,
+      icon: renderIcon(LogoutOutlined),
       label: '退出登录',
       onClick: handleLogout,
     },
@@ -45,6 +62,113 @@ const ChatPage: React.FC = () => {
   const handleSearch = () => {
     // 实现搜索逻辑
     setSearchVisible(false);
+  };
+
+  const modelOptions = [
+    { value: 'azure-gpt4', label: 'Azure OpenAI GPT-4' },
+    { value: 'gpt-4', label: 'OpenAI GPT-4' },
+    { value: 'doubao', label: '豆包大模型' },
+    { value: 'deepseek', label: 'DeepSeek' },
+    { value: 'qwen', label: '通义千问' },
+  ];
+
+  const handleSendMessage = async () => {
+    if (!messageInput.trim() || loading) return;
+
+    const token = localStorage.getItem('accessToken');
+    console.log('Current token:', token); // Debug log
+
+    if (!token) {
+      message.error('Please login first');
+      navigate('/login');
+      return;
+    }
+
+    const userMessage = messageInput.trim();
+    setMessageInput('');
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setHasMessages(true);
+    setLoading(true);
+
+    try {
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      };
+      console.log('Request headers:', headers); // Debug log
+
+      const response = await fetch('/api/chat/', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          message: userMessage,
+          model: selectedModel
+        }),
+      });
+
+      console.log('Response status:', response.status); // Debug log
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          message.error('Session expired. Please login again.');
+          localStorage.clear();
+          navigate('/login');
+          return;
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: data.data.content,
+          type: data.data.type
+        }]);
+      } else {
+        throw new Error(data.error || 'Failed to get response');
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      if (error instanceof Error) {
+        message.error(error.message);
+      } else {
+        message.error('Failed to send message');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  const renderMessages = () => {
+    return messages.map((msg, index) => (
+      <div
+        key={index}
+        style={{
+          padding: '20px',
+          background: msg.role === 'assistant' ? '#f5f5f5' : 'transparent',
+          marginBottom: '8px'
+        }}
+      >
+        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+          {msg.type === 'markdown' ? (
+            <ReactMarkdown>{msg.content}</ReactMarkdown>
+          ) : msg.type === 'html' ? (
+            <div dangerouslySetInnerHTML={{ __html: msg.content }} />
+          ) : (
+            <p style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</p>
+          )}
+        </div>
+      </div>
+    ));
   };
 
   const renderContent = () => {
@@ -57,55 +181,96 @@ const ChatPage: React.FC = () => {
             height: '100%', 
             display: 'flex', 
             flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            padding: '0 15%'
+            position: 'relative',
+            padding: hasMessages ? '20px 0 120px' : '0'
           }}>
+            {!hasMessages ? (
+              <div style={{ 
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center'
+              }}>
+                <h1 style={{ fontSize: '32px', marginBottom: '20px' }}>What can I help with?</h1>
+              </div>
+            ) : (
+              <div style={{ paddingBottom: '120px', overflowY: 'auto', height: '100%' }}>
+                {renderMessages()}
+              </div>
+            )}
             <div style={{ 
-              flex: 1,
-              width: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'center'
-            }}>
-              <h1 style={{ fontSize: '32px', marginBottom: '20px' }}>What can I help with?</h1>
-            </div>
-            <div style={{ 
-              width: '100%',
-              padding: '20px 0 40px',
-              borderTop: '1px solid #e8e8e8'
+              position: 'fixed',
+              bottom: 0,
+              left: collapsed ? 0 : '260px',
+              right: 0,
+              padding: '12px 20%',
+              background: '#ffffff',
+              borderTop: '1px solid #e8e8e8',
+              zIndex: 1000,
+              transition: 'left 0.2s'
             }}>
               <div style={{ 
-                display: 'flex',
-                gap: '10px',
-                alignItems: 'flex-end'
+                maxWidth: '800px',
+                margin: '0 auto',
+                position: 'relative'
               }}>
-                <Input.TextArea
-                  placeholder="Ask anything"
-                  value={messageInput}
-                  onChange={(e) => setMessageInput(e.target.value)}
-                  autoSize={{ minRows: 1, maxRows: 6 }}
-                  style={{ 
-                    resize: 'none',
-                    padding: '12px',
-                    borderRadius: '8px',
-                    backgroundColor: '#f0f2f5',
-                    border: 'none'
-                  }}
-                />
-                <Button 
-                  type="text"
-                  icon={<SendOutlined style={{ fontSize: '20px' }} />} 
-                  style={{
-                    height: '42px',
-                    width: '42px',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                />
+                <div style={{ 
+                  display: 'flex',
+                  gap: '10px',
+                  alignItems: 'flex-end',
+                  boxShadow: '0 0 10px rgba(0,0,0,0.1)',
+                  borderRadius: '12px',
+                  padding: '2px',
+                  marginBottom: '8px'
+                }}>
+                  <Input.TextArea
+                    placeholder="Ask anything"
+                    value={messageInput}
+                    onChange={(e) => setMessageInput(e.target.value)}
+                    autoSize={{ minRows: 1, maxRows: 6 }}
+                    style={{ 
+                      resize: 'none',
+                      padding: '12px 45px 12px 12px',
+                      fontSize: '16px',
+                      border: 'none',
+                      boxShadow: 'none'
+                    }}
+                    onKeyDown={handleKeyPress}
+                  />
+                  <Button 
+                    type="text"
+                    icon={renderIcon(SendOutlined)}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      bottom: '8px',
+                      height: '32px',
+                      width: '32px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    onClick={handleSendMessage}
+                  />
+                </div>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '0 4px'
+                }}>
+                  {renderIcon(RobotOutlined, 'small')}
+                  <Select
+                    value={selectedModel}
+                    onChange={setSelectedModel}
+                    style={{ width: 160 }}
+                    options={modelOptions}
+                    bordered={false}
+                    dropdownStyle={{ padding: '8px' }}
+                    size="small"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -129,7 +294,7 @@ const ChatPage: React.FC = () => {
         <div style={{ padding: '16px', display: 'flex', gap: '8px' }}>
           <Button 
             type="text" 
-            icon={<SearchOutlined style={{ fontSize: '20px', color: '#595959' }} />}
+            icon={renderIcon(SearchOutlined, 'large')}
             onClick={() => setSearchVisible(true)}
             style={{ 
               flex: 1,
@@ -139,7 +304,7 @@ const ChatPage: React.FC = () => {
           />
           <Button 
             type="text" 
-            icon={<AppstoreOutlined style={{ fontSize: '20px', color: '#595959' }} />}
+            icon={renderIcon(AppstoreOutlined, 'large')}
             style={{
               backgroundColor: '#f5f5f5',
               color: '#595959'
@@ -186,13 +351,13 @@ const ChatPage: React.FC = () => {
           <Tooltip title={collapsed ? "Open sidebar" : "Close sidebar"}>
             <Button
               type="text"
-              icon={collapsed ? <MenuUnfoldOutlined style={{ fontSize: '16px' }} /> : <MenuFoldOutlined style={{ fontSize: '16px' }} />}
+              icon={collapsed ? renderIcon(MenuUnfoldOutlined) : renderIcon(MenuFoldOutlined)}
               onClick={() => setCollapsed(!collapsed)}
               style={{ border: 'none' }}
             />
           </Tooltip>
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-            <Avatar icon={<UserOutlined style={{ fontSize: '18px' }} />} style={{ cursor: 'pointer', background: '#f0f2f5' }} />
+            <Avatar icon={renderIcon(UserOutlined)} style={{ cursor: 'pointer', background: '#f0f2f5' }} />
           </Dropdown>
         </Header>
         <Content style={{ 

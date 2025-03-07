@@ -42,7 +42,7 @@ class AzureOpenAIProvider(LLMProvider):
                 api_version=self.config['api_version'],
                 azure_endpoint=self.config['endpoint']
             )
-            logger.info(f"Initialized Azure OpenAI client for {self.config['name']}")
+            logger.info("Initialized Azure OpenAI client")
         except Exception as e:
             logger.error(f"Failed to initialize Azure OpenAI client: {str(e)}")
             raise
@@ -71,7 +71,7 @@ class OpenAIProvider(LLMProvider):
                 api_key=self.config['api_key'],
                 organization=self.config.get('organization_id')
             )
-            logger.info(f"Initialized OpenAI client for {self.config['name']}")
+            logger.info("Initialized OpenAI client")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI client: {str(e)}")
             raise
@@ -122,6 +122,8 @@ class LLMFactory:
             return None
 
         try:
+            # Remove name from kwargs if it exists to avoid duplicate argument
+            kwargs.pop('name', None)
             provider = provider_class(kwargs)
             provider.initialize()
             logger.info(f"Successfully created {name} instance")
@@ -139,9 +141,11 @@ class LLMFactory:
             return None
 
         try:
+            logger.debug(f"Attempting to fetch {provider} instance with ID: {instance_id}")
             instance = model_class.objects.get(id=instance_id, is_active=True)
+            logger.debug(f"Found instance: {instance.name} (ID: {instance.id})")
+
             config = {
-                'name': instance.name,
                 'model_id': instance.model_id,
                 'endpoint': instance.endpoint,
                 'api_key': instance.api_key,
@@ -149,21 +153,28 @@ class LLMFactory:
                 'temperature': instance.temperature,
                 'max_tokens': instance.max_tokens,
             }
+            logger.debug(f"Base config: {config}")
 
             if provider == 'azure':
-                config.update({
+                azure_config = {
                     'deployment_name': instance.deployment_name,
                     'resource_name': instance.resource_name,
-                })
+                }
+                logger.debug(f"Azure specific config: {azure_config}")
+                config.update(azure_config)
             elif provider == 'openai':
-                config.update({
+                openai_config = {
                     'organization_id': instance.organization_id,
-                })
+                }
+                logger.debug(f"OpenAI specific config: {openai_config}")
+                config.update(openai_config)
 
-            return cls.create_instance(provider, **config)
+            logger.debug(f"Creating {provider} instance with config: {config}")
+            return cls.create_instance(name=provider, **config)
         except model_class.DoesNotExist:
             logger.error(f"LLM instance not found: {provider} {instance_id}")
             return None
         except Exception as e:
             logger.error(f"Error getting LLM instance: {str(e)}")
+            logger.exception("Detailed error:")
             return None 

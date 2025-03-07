@@ -17,6 +17,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 from .services.mail_service import OutlookMailService
 import logging
+from .chat_service import ChatService
 
 # 获取logger
 logger = logging.getLogger('core')
@@ -233,3 +234,34 @@ class OutlookMailView(APIView):
                 {'error': str(e)}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+class ChatView(APIView):
+    """
+    Chat API endpoint
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.chat_service = ChatService()
+
+    def post(self, request, *args, **kwargs):
+        """
+        Handle chat message
+        """
+        message = request.data.get('message')
+        model = request.data.get('model')
+
+        if not message:
+            return Response(
+                {'error': 'Message is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Process message
+        response = self.chat_service.process_message(message, model)
+        formatted_response = self.chat_service.format_response(response)
+
+        return Response(
+            formatted_response,
+            status=status.HTTP_200_OK if formatted_response['success'] 
+            else status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

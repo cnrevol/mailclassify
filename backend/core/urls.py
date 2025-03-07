@@ -12,7 +12,8 @@ from .views import (
     AzureOpenAIViewSet,
     OpenAIViewSet,
     LLMCompletionView,
-    OutlookMailView
+    OutlookMailView,
+    ChatView
 )
 
 app_name = 'core'
@@ -40,6 +41,9 @@ urlpatterns = [
 
     # 邮件相关的URL
     path('mail/outlook/', OutlookMailView.as_view(), name='outlook_mail'),
+
+    # 聊天接口
+    path('chat/', ChatView.as_view(), name='chat'),
 
     # 包含自动生成的路由
     path('', include(router.urls)),
