@@ -154,17 +154,31 @@ const ChatPage: React.FC = () => {
         key={index}
         style={{
           padding: '20px',
-          background: msg.role === 'assistant' ? '#f5f5f5' : 'transparent',
+          display: 'flex',
+          justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
           marginBottom: '8px'
         }}
       >
-        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+        <div style={{ 
+          maxWidth: '800px',
+          width: 'fit-content',
+          padding: '12px 16px',
+          borderRadius: '12px',
+          background: msg.role === 'user' ? '#f5f5f5' : 'transparent',
+          border: msg.role === 'assistant' ? '1px solid #e8e8e8' : 'none',
+          marginLeft: msg.role === 'assistant' ? '48px' : 'auto',
+          marginRight: msg.role === 'user' ? '48px' : 'auto',
+        }}>
           {msg.type === 'markdown' ? (
             <ReactMarkdown>{msg.content}</ReactMarkdown>
           ) : msg.type === 'html' ? (
             <div dangerouslySetInnerHTML={{ __html: msg.content }} />
           ) : (
-            <p style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</p>
+            <p style={{ 
+              whiteSpace: 'pre-wrap',
+              margin: 0,
+              color: msg.role === 'user' ? '#595959' : '#000000'
+            }}>{msg.content}</p>
           )}
         </div>
       </div>
