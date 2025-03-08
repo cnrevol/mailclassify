@@ -2,32 +2,48 @@ import logging
 from typing import List, Dict, Any
 from django.conf import settings
 from ..models import CCEmail, CCEmailClassifyRule
-from .ai_classifier import EmailClassificationAgent
+from .ai_classifier import EmailClassificationAgent, ClassifierFactory
+import time
 
 logger = logging.getLogger(__name__)
 
 class EmailClassifier:
     """邮件分类服务"""
 
+    # 分类器工厂实例
+    _factory = None
+    
+    @classmethod
+    def get_factory(cls):
+        """获取分类器工厂实例"""
+        if cls._factory is None:
+            cls._factory = ClassifierFactory.get_instance()
+        return cls._factory
+
     @staticmethod
     def classify_emails(emails: List[CCEmail], method: str = "sequence") -> Dict[str, List[Dict[str, Any]]]:
         """
-        对邮件进行分类
+        对邮件列表进行分类
         
         Args:
-            emails: 待分类的邮件列表
-            method: 分类方法 ('decision_tree', 'llm', 'bert', 'fasttext', 'sequence')
+            emails: 要分类的邮件列表
+            method: 分类方法 ('decision_tree', 'llm', 'bert', 'fasttext', 'sequence', 'stepgo')
             
         Returns:
-            分类结果字典，key为分类名称，value为该分类下的邮件列表
+            按分类组织的邮件字典
         """
-        try:
-            logger.info(f"开始邮件分类，共 {len(emails)} 封邮件，使用方法: {method}")
-            results = {}
+        result = {}
+        
+        # 记录开始时间
+        start_time = time.time()
+        logger.info(f"开始对 {len(emails)} 封邮件进行分类，使用方法: {method}")
+        
+        # 处理每封邮件
+        for email in emails:
+            logger.debug(f"开始处理邮件: {email.subject[:50]}...")
             
-            for email in emails:
-                logger.debug(f"开始处理邮件: {email.subject[:50]}...")
-                
+            try:
+                # 根据方法选择分类器
                 if method == "decision_tree":
                     classification_result = EmailClassifier._classify_by_decision_tree(email)
                 elif method == "sequence":
@@ -42,27 +58,61 @@ class EmailClassifier:
                         logger.info("序列分类：完成 AI 代理二次分类")
                     else:
                         logger.info(f"序列分类：邮件已通过决策树成功分类为 '{classification_result['classification']}'")
+                elif method == "stepgo":
+                    # 逐步尝试不同的分类器，直到获得非 "other" 的结果
+                    classification_result = EmailClassifier._step_classifier(email)
                 else:
                     classification_result = EmailClassifier._classify_by_ai_agent(email, method)
                 
-                # 将结果添加到对应分类中
-                category = classification_result['classification']
-                if category not in results:
-                    results[category] = []
-                results[category].append({
-                    'email': email,
-                    'rule_name': classification_result['rule_name'],
-                    'explanation': classification_result['explanation']
-                })
+                # 记录分类结果
+                classification = classification_result.get('classification', 'unknown')
+                logger.info(f"邮件 '{email.subject[:50]}...' 被 {method} 分类为 '{classification}'")
                 
-            # 记录分类结果统计
-            for category, items in results.items():
-                logger.info(f"分类 '{category}': {len(items)} 封邮件")
+                # 将结果添加到对应分类的列表中
+                if classification not in result:
+                    result[classification] = []
                 
-            return results
-        except Exception as e:
-            logger.error(f"邮件分类过程中出错: {str(e)}", exc_info=True)
-            return {"error": [{"email": None, "rule_name": None, "explanation": str(e)}]}
+                # 创建邮件结果字典，包含完整的邮件对象
+                email_result = {
+                    'email': email,  # 包含完整的邮件对象
+                    'subject': email.subject,
+                    'sender': email.sender,
+                    'received_time': email.received_time,
+                    'classification': classification,
+                    'rule_name': classification_result.get('rule_name', ''),
+                    'explanation': classification_result.get('explanation', '')
+                }
+                
+                result[classification].append(email_result)
+                
+            except Exception as e:
+                logger.error(f"处理邮件时出错: {str(e)}", exc_info=True)
+                # 将错误邮件归类为 'error'
+                if 'error' not in result:
+                    result['error'] = []
+                    
+                # 创建错误结果字典
+                error_result = {
+                    'email': email,  # 包含完整的邮件对象
+                    'subject': email.subject,
+                    'sender': email.sender,
+                    'received_time': email.received_time,
+                    'classification': 'error',
+                    'rule_name': '',
+                    'explanation': f"Error: {str(e)}"
+                }
+                    
+                result['error'].append(error_result)
+        
+        # 记录结束时间和统计信息
+        end_time = time.time()
+        duration = end_time - start_time
+        total_emails = len(emails)
+        classified_emails = sum(len(emails_list) for emails_list in result.values())
+        logger.info(f"分类完成，共处理 {classified_emails}/{total_emails} 封邮件，耗时 {duration:.2f} 秒")
+        logger.info(f"分类结果统计: {', '.join([f'{k}: {len(v)}' for k, v in result.items()])}")
+        
+        return result
 
     @staticmethod
     def _classify_by_decision_tree(email: CCEmail) -> Dict[str, Any]:
@@ -97,7 +147,16 @@ class EmailClassifier:
 
     @staticmethod
     def _classify_by_ai_agent(email: CCEmail, method: str) -> Dict[str, Any]:
-        """使用AI代理对单个邮件进行分类"""
+        """
+        使用AI代理对单个邮件进行分类
+        
+        Args:
+            email: 要分类的邮件
+            method: 分类方法 ('llm', 'bert', 'fasttext')
+            
+        Returns:
+            分类结果字典
+        """
         try:
             # 获取可用的分类类别
             categories = list(CCEmailClassifyRule.objects.values_list(
@@ -112,23 +171,11 @@ class EmailClassifier:
 
             logger.info(f"使用 {method} 方法进行分类，可用类别: {categories}")
 
-            # 初始化分类代理
-            agent = EmailClassificationAgent(categories)
-            agent.setup()  # 使用默认配置
-            logger.info(f"AI 分类代理初始化完成")
-
-            # 使用指定方法进行分类
-            result = agent.classify_email(email, method)
+            # 使用分类器工厂进行分类
+            factory = EmailClassifier.get_factory()
+            result = factory.classify_email(email, method, categories)
             
-            # 获取分类结果
-            classification = result.get('classification', 'unclassified')
-            logger.info(f"邮件 '{email.subject[:50]}...' 被 {method} 分类为 '{classification}'")
-            
-            return {
-                'classification': classification,
-                'rule_name': f"{method.upper()} Classification",
-                'explanation': result.get('explanation', 'No explanation provided')
-            }
+            return result
 
         except Exception as e:
             logger.error(f"AI 代理分类过程中出错: {str(e)}", exc_info=True)
@@ -255,4 +302,69 @@ class EmailClassifier:
 
         except Exception as e:
             logger.error(f"匹配规则 '{rule.name}' 时出错: {str(e)}", exc_info=True)
-            return False 
+            return False
+
+    @staticmethod
+    def _step_classifier(email: CCEmail) -> Dict[str, Any]:
+        """
+        逐步分类器，按顺序尝试不同的分类方法，直到获得非 "other" 的结果
+        
+        Args:
+            email: 要分类的邮件
+            
+        Returns:
+            分类结果字典
+        """
+        logger.info(f"开始对邮件 '{email.subject[:50]}...' 进行逐步分类")
+        
+        # 获取可用的分类类别
+        categories = list(CCEmailClassifyRule.objects.values_list(
+            'classification', flat=True).distinct())
+        if not categories:
+            logger.error("没有找到可用的分类类别")
+            return {
+                'classification': 'unclassified',
+                'rule_name': "Step Classification",
+                'explanation': "No classification categories available"
+            }
+            
+        # 获取分类器工厂
+        factory = EmailClassifier.get_factory()
+        
+        # 步骤 1: 使用决策树分类
+        logger.info("步骤 1: 使用决策树分类")
+        result = EmailClassifier._classify_by_decision_tree(email)
+        classification = result.get('classification', 'unclassified')
+        
+        # 如果结果不是 'other' 或 'unclassified'，直接返回
+        if classification not in ['other', 'unclassified']:
+            logger.info(f"决策树分类成功: {classification}")
+            return result
+        
+        # 步骤 2: 使用 FastText 分类
+        logger.info("步骤 2: 使用 FastText 分类")
+        result = factory.classify_email(email, 'fasttext', categories)
+        classification = result.get('classification', 'other')
+        
+        # 如果结果不是 'other'，直接返回
+        if classification != 'other':
+            logger.info(f"FastText 分类成功: {classification}")
+            return result
+        
+        # 步骤 3: 使用 BERT 分类
+        logger.info("步骤 3: 使用 BERT 分类")
+        result = factory.classify_email(email, 'bert', categories)
+        classification = result.get('classification', 'other')
+        
+        # 如果结果不是 'other'，直接返回
+        if classification != 'other':
+            logger.info(f"BERT 分类成功: {classification}")
+            return result
+        
+        # 步骤 4: 使用 LLM 分类（最终尝试）
+        logger.info("步骤 4: 使用 LLM 分类")
+        result = factory.classify_email(email, 'llm', categories)
+        classification = result.get('classification', 'other')
+        logger.info(f"LLM 分类结果: {classification}")
+        
+        return result 

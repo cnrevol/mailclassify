@@ -140,7 +140,7 @@ const MailConfigPage: React.FC = () => {
       if (newStatus) {
         // 开始分类
         const response = await axios.post('/api/mail/classify/', 
-          { email: record.email, hours: 2, method: 'sequence' },
+          { email: record.email, hours: 2, method: 'stepgo' },
           { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
         );
         

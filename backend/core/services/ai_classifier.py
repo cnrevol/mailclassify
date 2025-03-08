@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from typing import Dict, Any, List, Optional
 from smolagents import Tool
 from django.conf import settings
@@ -16,6 +17,36 @@ from core.llm_factory import LLMFactory
 from core.model_providers import BertProvider, FastTextProvider
 
 logger = logging.getLogger(__name__)
+
+def extract_text_from_html(html_content: str) -> str:
+    """
+    从 HTML 内容中提取纯文本
+    
+    Args:
+        html_content: HTML 格式的内容
+        
+    Returns:
+        提取的纯文本
+    """
+    if not html_content:
+        return ""
+        
+    # 移除 HTML 标签
+    text = re.sub(r'<[^>]+>', ' ', html_content)
+    
+    # 移除多余的空白字符
+    text = re.sub(r'\s+', ' ', text)
+    
+    # 移除特殊字符和转义序列
+    text = text.replace('\\r', ' ').replace('\\n', ' ').replace('\\t', ' ')
+    
+    # 移除引号
+    text = text.replace('"', '').replace("'", "")
+    
+    # 移除多余的空格
+    text = text.strip()
+    
+    return text
 
 class EmailClassificationTool(Tool):
     """Base class for email classification tools"""
@@ -73,8 +104,12 @@ class LLMClassificationTool(EmailClassificationTool):
 
             # 提取邮件内容
             subject = email.subject or ""
-            body = email.content or ""  # 使用 content 而不是 body
+            content = email.content or ""  # 使用 content 而不是 body
             sender = email.sender or ""
+            
+            # 提取纯文本内容
+            clean_content = extract_text_from_html(content)
+            logger.debug(f"提取的纯文本内容: {clean_content[:100]}...")
             
             # 构建系统消息和用户消息
             system_message = {
@@ -84,7 +119,7 @@ class LLMClassificationTool(EmailClassificationTool):
             
             user_message = {
                 "role": "user",
-                "content": f"请分析以下邮件内容：\n\n发件人: {sender}\n主题: {subject}\n内容:\n{body[:1000]}..."
+                "content": f"请分析以下邮件内容：\n\n发件人: {sender}\n主题: {subject}\n内容:\n{clean_content[:1000]}..."
             }
             
             # 发送消息到 LLM
@@ -170,12 +205,16 @@ class BertClassificationTool(EmailClassificationTool):
 
             # 提取邮件内容
             subject = email.subject or ""
-            body = email.content or ""  # 使用 content 而不是 body
+            content = email.content or ""  # 使用 content 而不是 body
+            
+            # 提取纯文本内容
+            clean_content = extract_text_from_html(content)
+            logger.debug(f"提取的纯文本内容: {clean_content[:100]}...")
             
             # 构建消息
             message = [{
                 "role": "user",
-                "content": f"Subject: {subject}\n\nBody: {body[:1000]}"
+                "content": f"Subject: {subject}\n\nBody: {clean_content[:1000]}"
             }]
             
             # 获取分类结果
@@ -257,12 +296,17 @@ class FastTextClassificationTool(EmailClassificationTool):
 
             # 提取邮件内容
             subject = email.subject or ""
-            body = email.content or ""  # 使用 content 而不是 body
+            content = email.content or ""  # 使用 content 而不是 body
             
-            # 构建消息
+            # 提取纯文本内容
+            clean_content = extract_text_from_html(content)
+            logger.debug(f"提取的纯文本内容: {clean_content[:100]}...")
+            
+            # 构建消息 - 确保没有换行符
+            clean_text = f"Subject: {subject} Body: {clean_content}".replace('\n', ' ').replace('\r', ' ')
             message = [{
                 "role": "user",
-                "content": f"Subject: {subject}\n\nBody: {body[:1000]}"
+                "content": clean_text
             }]
             
             # 获取分类结果
@@ -292,40 +336,108 @@ class FastTextClassificationTool(EmailClassificationTool):
                 "explanation": f"Error: {str(e)}"
             }
 
+class ClassifierFactory:
+    """分类器工厂，用于创建和管理不同类型的分类器"""
+    
+    _instance = None
+    _classifiers = {}
+    
+    @classmethod
+    def get_instance(cls):
+        """获取单例实例"""
+        if cls._instance is None:
+            cls._instance = ClassifierFactory()
+        return cls._instance
+    
+    def get_classifier(self, method: str, categories: List[str]):
+        """
+        获取指定类型的分类器
+        
+        Args:
+            method: 分类方法 ('llm', 'bert', 'fasttext')
+            categories: 可用的分类类别
+            
+        Returns:
+            分类器实例
+        """
+        # 如果分类器已经存在，直接返回
+        if method in self._classifiers:
+            # 更新分类类别
+            self._classifiers[method].set_categories(categories)
+            return self._classifiers[method]
+        
+        # 创建新的分类器
+        if method == 'llm':
+            classifier = LLMClassificationTool()
+        elif method == 'bert':
+            classifier = BertClassificationTool()
+        elif method == 'fasttext':
+            classifier = FastTextClassificationTool()
+        else:
+            raise ValueError(f"Unknown classification method: {method}")
+        
+        # 设置分类类别
+        classifier.set_categories(categories)
+        
+        # 初始化分类器
+        classifier.setup()
+        
+        # 缓存分类器
+        self._classifiers[method] = classifier
+        
+        return classifier
+    
+    def classify_email(self, email, method: str, categories: List[str]) -> Dict[str, Any]:
+        """
+        使用指定方法对邮件进行分类
+        
+        Args:
+            email: 要分类的邮件
+            method: 分类方法 ('llm', 'bert', 'fasttext')
+            categories: 可用的分类类别
+            
+        Returns:
+            分类结果字典
+        """
+        try:
+            # 获取分类器
+            classifier = self.get_classifier(method, categories)
+            
+            # 使用分类器进行分类
+            result = classifier.forward(email)
+            
+            # 获取分类结果
+            classification = result.get('classification', 'unclassified')
+            logger.info(f"邮件 '{email.subject[:50]}...' 被 {method} 分类为 '{classification}'")
+            
+            return {
+                'classification': classification,
+                'rule_name': f"{method.upper()} Classification",
+                'explanation': result.get('explanation', 'No explanation provided')
+            }
+            
+        except Exception as e:
+            logger.error(f"{method} 分类过程中出错: {str(e)}", exc_info=True)
+            return {
+                'classification': 'unclassified',
+                'rule_name': f"{method.upper()} Classification",
+                'explanation': f"Error during classification: {str(e)}"
+            }
+
 class EmailClassificationAgent:
     """Agent for email classification using multiple models"""
     def __init__(self, categories: List[str]):
-        # Initialize classification tools
-        self.llm_tool = LLMClassificationTool()
-        self.bert_tool = BertClassificationTool()
-        self.fasttext_tool = FastTextClassificationTool()
-
-        # Set available categories for all tools
-        for tool in [self.llm_tool, self.bert_tool, self.fasttext_tool]:
-            tool.set_categories(categories)
-
+        self.categories = categories
+        self.factory = ClassifierFactory.get_instance()
+        self.is_initialized = True
+        
     def setup(self, llm_provider: str = "azure", llm_instance_id: int = 1) -> None:
-        """Setup all classification tools"""
-        try:
-            # Setup LLM tool
-            self.llm_tool.setup(llm_provider, llm_instance_id)
-            logger.info("LLM tool initialized successfully")
-
-            # Setup BERT tool
-            self.bert_tool.setup()
-            logger.info("BERT tool initialized successfully")
-
-            # Setup FastText tool
-            self.fasttext_tool.setup()
-            logger.info("FastText tool initialized successfully")
-
-        except Exception as e:
-            logger.error(f"Error setting up classification agent: {str(e)}")
-            raise
-
+        """Setup is now handled by the ClassifierFactory"""
+        pass
+        
     def classify_email(self, email, method: str = "llm") -> Dict[str, Any]:
         """
-        Classify an email using the specified method
+        Classify email using specified method
         
         Args:
             email: The email to classify
@@ -334,25 +446,4 @@ class EmailClassificationAgent:
         Returns:
             Classification result dictionary
         """
-        try:
-            tool_map = {
-                "llm": self.llm_tool,
-                "bert": self.bert_tool,
-                "fasttext": self.fasttext_tool
-            }
-
-            tool = tool_map.get(method.lower())
-            if not tool:
-                raise ValueError(f"Unknown classification method: {method}")
-
-            result = tool.forward(email)
-            logger.info(f"Classification result using {method}: {result}")
-            return result
-
-        except Exception as e:
-            logger.error(f"Error in email classification: {str(e)}")
-            return {
-                "classification": "unknown",
-                "confidence": 0.0,
-                "explanation": f"Error: {str(e)}"
-            } 
+        return self.factory.classify_email(email, method, self.categories) 

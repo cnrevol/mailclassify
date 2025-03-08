@@ -467,46 +467,39 @@ class ClassifyEmailsView(APIView):
 
     def post(self, request):
         """
-        对指定邮箱的邮件进行分类
-        
-        参数:
-        - email: 邮箱地址
-        - hours: 获取指定小时数内的邮件（可选，默认为2小时）
-        - method: 分类方法（可选，默认为decision_tree）
+        对邮件进行分类
         """
         try:
-            logger.info("开始处理邮件分类请求")
-            
-            # 获取参数
+            # 获取请求参数
             email = request.data.get('email')
-            hours = request.data.get('hours', 2)  # 默认2小时
-            method = request.data.get('method', 'decision_tree')  # 默认使用决策树
-            
-            logger.info(f"分类参数: email={email}, hours={hours}, method={method}")
+            hours = request.data.get('hours', 2)  # 默认获取2小时内的邮件
+            method = request.data.get('method', 'stepgo')  # 默认使用 stepgo 分类
             
             if not email:
-                logger.error("缺少邮箱地址参数")
                 return Response(
-                    {'error': '邮箱地址参数是必需的'}, 
+                    {'error': 'Email is required'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
-
+                
+            logger.info(f"开始处理邮件分类请求，邮箱: {email}, 方法: {method}, 时间范围: {hours}小时")
+            
             # 获取用户邮件配置
             user_mail = CCUserMailInfo.objects.filter(email=email, is_active=True).first()
             if not user_mail:
                 logger.error(f"未找到邮箱配置: {email}")
                 return Response(
-                    {'error': '未找到邮箱配置'}, 
+                    {'error': 'Email configuration not found'}, 
                     status=status.HTTP_404_NOT_FOUND
                 )
-
-            # 1. 获取邮件
-            logger.info(f"开始获取 {email} 的邮件")
+            
+            # 1. 从 Outlook 获取邮件
+            logger.info(f"开始从 Outlook 获取 {email} 的邮件")
             mail_service = OutlookMailService(user_mail)
             emails = mail_service.fetch_emails(hours=hours)
             logger.info(f"成功获取 {len(emails)} 封邮件")
             
             if not emails:
+                logger.info("没有新邮件需要分类")
                 return Response({
                     'status': 'success',
                     'message': '没有新邮件需要分类',
@@ -528,10 +521,14 @@ class ClassifyEmailsView(APIView):
                 
                 # 更新邮件分类
                 for data in emails_data:
-                    email_obj = data['email']
-                    email_obj.categories = classification
-                    email_obj.save(update_fields=['categories'])
-                    logger.debug(f"邮件 {email_obj.id} 分类为 '{classification}'")
+                    # 获取邮件对象
+                    if 'email' in data:
+                        email_obj = data['email']
+                        email_obj.categories = classification
+                        email_obj.save(update_fields=['categories'])
+                        logger.debug(f"邮件 '{email_obj.subject[:30]}...' 分类为 '{classification}'")
+                    else:
+                        logger.warning(f"邮件数据中缺少 'email' 字段: {data}")
             
             logger.info(f"分类完成，共分类 {total_classified} 封邮件")
             

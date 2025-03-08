@@ -62,34 +62,73 @@ class BertProvider(LLMProvider):
             return False
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> Optional[str]:
-        """使用BERT模型进行对话"""
+        """使用BERT模型进行分类"""
         try:
-            # 获取最后一条用户消息
-            user_message = next((msg['content'] for msg in reversed(messages) 
-                               if msg['role'] == 'user'), None)
-            if not user_message:
+            if not hasattr(self, 'model') or self.model is None:
+                logger.error("BERT model not initialized")
                 return None
-
-            # 使用模型进行预测
-            inputs = self.tokenizer(user_message, 
-                                  return_tensors="pt",
-                                  truncation=True,
-                                  max_length=512,
-                                  padding=True)
+                
+            # 提取用户消息
+            user_message = ""
+            for message in messages:
+                if message.get('role') == 'user':
+                    user_message += message.get('content', '') + " "
             
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-                predictions = torch.softmax(outputs.logits, dim=1)
-                predicted_class = torch.argmax(predictions).item()
-                confidence = predictions[0][predicted_class].item()
-
+            if not user_message.strip():
+                logger.warning("Empty user message")
+                return json.dumps({
+                    "classification": "unknown",
+                    "confidence": 0.0,
+                    "explanation": "Empty message"
+                })
+            
+            # 确保没有换行符，处理文本
+            user_message = user_message.replace('\n', ' ').replace('\r', ' ')
+            logger.debug(f"处理后的消息: {user_message[:100]}...")
+            
+            # 使用模型进行预测
+            try:
+                # 对文本进行分词
+                inputs = self.tokenizer(
+                    user_message,
+                    padding='max_length',
+                    truncation=True,
+                    max_length=512,
+                    return_tensors='pt'
+                )
+                
+                # 进行预测
+                with torch.no_grad():
+                    outputs = self.model(inputs['input_ids'], inputs['attention_mask'])
+                    predictions = torch.softmax(outputs.logits, dim=1)
+                    predicted_class_idx = torch.argmax(predictions).item()
+                    confidence = predictions[0][predicted_class_idx].item()
+                
+                # 获取分类标签 - 使用 settings 中定义的映射
+                predicted_class_str = str(predicted_class_idx)
+                if hasattr(settings, 'BERT_LABEL_MAP') and predicted_class_idx in settings.BERT_LABEL_MAP:
+                    predicted_label = settings.BERT_LABEL_MAP[predicted_class_idx]
+                else:
+                    # 尝试使用模型自带的标签映射
+                    predicted_label = self.labels_reverse.get(predicted_class_idx, "unknown")
+                    # 如果没有找到映射，使用原始类别索引
+                    if predicted_label == "unknown":
+                        predicted_label = predicted_class_str
+                
+            except Exception as e:
+                logger.error(f"Error during BERT prediction: {str(e)}")
+                predicted_label = "unknown"
+                confidence = 0.0
+            
             # 返回预测结果
             result = {
-                "classification": str(predicted_class),
-                "confidence": float(confidence),
-                "explanation": f"BERT model prediction with confidence {confidence:.2f}"
+                "classification": predicted_label,
+                "confidence": confidence,
+                "explanation": f"BERT classified as '{predicted_label}' with confidence {confidence:.2f}"
             }
+            
             return json.dumps(result)
+            
         except Exception as e:
             logger.error(f"Error in BERT chat: {str(e)}")
             return None
@@ -173,12 +212,23 @@ class FastTextProvider(LLMProvider):
                     "explanation": "Empty message"
                 })
             
+            # 确保没有换行符，FastText 不能处理换行符
+            user_message = user_message.replace('\n', ' ').replace('\r', ' ')
+            logger.debug(f"处理后的消息: {user_message[:100]}...")
+            
             # 使用模型进行预测
             try:
                 predictions = self.model.predict(user_message)
                 if isinstance(predictions, tuple) and len(predictions) >= 2:
-                    predicted_class = predictions[0][0].replace('__label__', '')
+                    # 获取原始预测标签和置信度
+                    raw_label = predictions[0][0].replace('__label__', '')
                     confidence = float(predictions[1][0])
+                    
+                    # 使用 settings 中定义的映射转换标签
+                    if hasattr(settings, 'FASTTEXT_LABEL_MAP') and raw_label in settings.FASTTEXT_LABEL_MAP:
+                        predicted_class = settings.FASTTEXT_LABEL_MAP[raw_label]
+                    else:
+                        predicted_class = raw_label
                 else:
                     logger.warning(f"Unexpected prediction format: {predictions}")
                     predicted_class = "unknown"

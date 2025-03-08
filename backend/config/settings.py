@@ -287,3 +287,23 @@ OAUTH_SETTINGS = {
     'redirect_path': '/api/classifier/oauth/callback',
     'frontend_redirect_url': 'http://localhost:3000',
 } 
+
+
+FASTTEXT_LABEL_MAP = {
+    "1": "purchase",
+    "2": "techsupport",
+    "3": "festival"
+}
+
+BERT_LABEL_MAP = {
+    1: "purchase",
+    2: "techsupport",
+    3: "festival"
+}
+
+
+EMAIL_TYPE_MAPPING = {
+    'purchase': ['sales_inquiry', 'general_inquiry'],
+    'techsupport': ['support_request', 'technical_issue', 'urgent_issue'],
+    'Technical support': ['support_request', 'technical_issue', 'urgent_issue'],
+}

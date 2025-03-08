@@ -82,3 +82,186 @@ LLM的返回结果返回给前端，显示到ChatPage.tsx页面上，
     path('oauth/callback', AzureOAuthView.handle_callback, name='oauth-callback'),
 
     
+
+
+python 代码符合编码规范，最佳实践。
+符合面向对象方法，高内聚低耦合。
+每个方法最好不超过100行，if分支不超过7层。
+python 后端代码，需要日志，必要的处理需要日志。日志用英文。
+
+
+email_classifier.py 的 classify_emails 方法中再添加一个 method == "stepgo" 的分支，
+定义一个step_classifier 的处理。
+顺序执行，依次用，决策树分类，fasttext模型分类，bert模型分类，llm模型分类。
+当某个分类处理不是other时，返回成功信息，是other时，进入下一级。最后用llm分类。
+
+对于 fasttext模型分类，bert模型分类，llm模型分类，的调用，要从 ai_classifier.py 中提取出通用的处理，和step_classifier 共用。
+
+
+
+
+FASTTEXT_LABEL_MAP = {
+    "1": "purchase",
+    "2": "techsupport",
+    "3": "festival"
+}
+
+
+
+BERT_LABEL_MAP = {
+    1: "purchase",
+    2: "techsupport",
+    3: "festival"
+}
+
+
+
+
+分类完成的邮件，参考表cc_forwardingaddress，cc_forwardingrule 已经定义到了DB.
+create table asset.cc_forwardingaddress (
+  id bigint not null
+  , email character varying(254) not null
+  , name character varying(100) not null
+  , is_active boolean not null
+  , rule_id bigint not null
+  , primary key (id)
+);
+
+
+create table asset.cc_forwardingrule (
+  id bigint not null
+  , name character varying(100) not null
+  , rule_type character varying(1) not null
+  , email_type character varying(50) not null
+  , description text not null
+  , forward_message text not null
+  , priority integer not null
+  , is_active boolean not null
+  , created_at timestamp(6) with time zone not null
+  , updated_at timestamp(6) with time zone not null
+  , primary key (id)
+);
+
+做邮件转发，
+这个邮件分类与转发email_type 的对应关系定义在setting文件。
+EMAIL_TYPE_MAPPING = {
+    'purchase': ['sales_inquiry', 'general_inquiry'],
+    'techsupport': ['support_request', 'technical_issue', 'urgent_issue'],
+    'Technical support': ['support_request', 'technical_issue', 'urgent_issue'],
+}
+对照setting.py中定义的这个关系，处理分类：email_type，到表cc_forwardingrule中查找email_type定义的邮件转发定义，
+包括，forward_message，name，rule_type，转发邮件地址通过id查找cc_forwardingaddress表的email 地址。
+
+参考以下代码
+
+# 获取对应的email_types
+                email_types = settings.EMAIL_TYPE_MAPPING.get(classification.lower(), [])
+                logger.debug(f"Mapped email types: {email_types}")
+                
+                # 对每个email_type进行处理
+                for email_type in email_types:
+                    logger.info(f"Processing email type: {email_type} for email: {email['subject']}")
+                    
+                    # 获取转发信息
+                    logger.debug("Getting forwarding information")
+                    forwarding_info = EmailForwardingService.get_forwarding_info(
+                        email_content=email['body_text'],
+                        email_type=email_type
+                    )
+                    
+                    if forwarding_info.get('success'):
+                        # 转发邮件
+                        logger.info(f"Forwarding email to: {forwarding_info['forward_addresses']}")
+                        graph_service.forward_email(forwarding_info, email)
+                        
+                        # 记录到日志
+                        logger.debug("Creating log entry in database")
+                        log_entry = EmailClassificationLog.objects.create(
+                            title=email['subject'],
+                            sender=email['from'],
+                            received_time=email['received_time'],
+                            classification=classification,
+                            email_type=email_type,
+                            forwarding_recipient=','.join([
+                                addr['email'] for addr in forwarding_info['forward_addresses']
+                            ]),
+                            created_at=timezone.now()
+                        )
+                        
+                        logger.debug(f"Log entry created with ID: {log_entry.id}")
+                        processing_results.append({
+                            'id': log_entry.id,
+                            'title': log_entry.title,
+                            'sender': log_entry.sender,
+                            'received_time': log_entry.received_time,
+                            'classification': log_entry.classification,
+                            'email_type': log_entry.email_type,
+                            'forwarding_recipient': log_entry.forwarding_recipient,
+                            'created_at': log_entry.created_at
+                        })
+                        logger.info(f"Successfully processed and forwarded email: {email['subject']}")
+                    else:
+                        logger.warning(f"Failed to get forwarding info for email: {email['subject']}")
+
+class EmailForwardingService:
+    @staticmethod
+    def get_forwarding_info(email_content: str, email_type: str) -> dict:
+        """
+        Get forwarding information based on email type and content
+        
+        Args:
+            email_content (str): The content of the email (optional)
+            email_type (str): The type of the email
+            
+        Returns:
+            dict: Forwarding information including addresses, message, and priority
+        """
+        try:
+            # Get the active forwarding rule for this email type
+            rule = ForwardingRule.objects.filter(
+                email_type=email_type,
+                is_active=True
+            ).prefetch_related('addresses').first()
+            
+            if not rule:
+                return {
+                    'success': False,
+                    'error': f'No active forwarding rule found for email type: {email_type}'
+                }
+            
+            # Get active forwarding addresses
+            addresses = rule.addresses.filter(is_active=True)
+            if not addresses.exists():
+                return {
+                    'success': False,
+                    'error': f'No active forwarding addresses found for rule: {rule.name}'
+                }
+            
+            # If rule type is 'A' (Average Distribution), get the optimal address
+            if rule.rule_type == 'A':
+                address = TaskAssignmentService.get_optimal_address(
+                    addresses=addresses,
+                    task_type=email_type
+                )
+                forward_addresses = [{'email': address.email, 'name': address.name}]
+            else:  # For rule type 'B' (Direct Forward)
+                forward_addresses = [
+                    {'email': addr.email, 'name': addr.name}
+                    for addr in addresses
+                ]
+            
+            return {
+                'success': True,
+                'rule_type': rule.rule_type,
+                'forward_addresses': forward_addresses,
+                'forward_message': rule.forward_message,
+                'priority': rule.priority,
+                'rule_name': rule.name
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting forwarding info: {str(e)}", exc_info=True)
+            return {
+                'success': False,
+                'error': f'Error processing forwarding request: {str(e)}'
+            }
