@@ -16,3 +16,9 @@ python manage.py runserver
 
 python manage.py makemigrations
 python manage.py migrate
+
+python manage.py migrate core 0005_ccemailforwardinglog_ccforwardingrule_and_more --fake
+
+
+   python manage.py migrate --fake-initial
+      python manage.py sqlmigrate core 0005_ccemailforwardinglog_ccforwardingrule_and_more

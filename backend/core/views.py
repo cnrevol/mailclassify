@@ -474,6 +474,7 @@ class ClassifyEmailsView(APIView):
             email = request.data.get('email')
             hours = request.data.get('hours', 2)  # 默认获取2小时内的邮件
             method = request.data.get('method', 'stepgo')  # 默认使用 stepgo 分类
+            enable_forwarding = request.data.get('enable_forwarding', True)  # 默认启用转发
             
             if not email:
                 return Response(
@@ -481,7 +482,7 @@ class ClassifyEmailsView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
                 
-            logger.info(f"开始处理邮件分类请求，邮箱: {email}, 方法: {method}, 时间范围: {hours}小时")
+            logger.info(f"开始处理邮件分类请求，邮箱: {email}, 方法: {method}, 时间范围: {hours}小时, 启用转发: {enable_forwarding}")
             
             # 获取用户邮件配置
             user_mail = CCUserMailInfo.objects.filter(email=email, is_active=True).first()
@@ -532,11 +533,31 @@ class ClassifyEmailsView(APIView):
             
             logger.info(f"分类完成，共分类 {total_classified} 封邮件")
             
+            # 4. 如果启用了转发，处理邮件转发
+            forwarding_results = []
+            if enable_forwarding and total_classified > 0:
+                logger.info("开始处理邮件转发")
+                from core.services.email_forwarding import EmailForwardingService
+                from core.services.graph_service import GraphService
+                
+                # 创建 Graph API 服务
+                graph_service = GraphService(user_mail)
+                
+                # 处理邮件转发
+                forwarding_results = EmailForwardingService.process_classified_emails(
+                    classification_results=results,
+                    graph_service=graph_service
+                )
+                
+                logger.info(f"邮件转发完成，共转发 {len(forwarding_results)} 封邮件")
+            
             return Response({
                 'status': 'success',
-                'message': f'成功分类 {total_classified} 封邮件',
+                'message': f'成功分类 {total_classified} 封邮件，转发 {len(forwarding_results)} 封邮件',
                 'classified_count': total_classified,
-                'classification_stats': classification_stats
+                'forwarded_count': len(forwarding_results),
+                'classification_stats': classification_stats,
+                'forwarding_results': forwarding_results
             })
 
         except Exception as e:

@@ -46,6 +46,7 @@ class CCAzureOpenAI(CCLLMBase):
     """Azure OpenAI模型"""
     deployment_name = models.CharField(max_length=100, verbose_name="部署名称")
     resource_name = models.CharField(max_length=100, verbose_name="资源名称")
+    api_version = models.CharField(_('API版本'), max_length=50, default="2023-03-15-preview")
 
     class Meta:
         db_table = 'cc_azure_openai'
@@ -166,3 +167,62 @@ class CCEmail(CCBaseModel):
             }
             for a in attachments
         ]
+
+class CCForwardingRule(CCBaseModel):
+    """
+    邮件转发规则表
+    """
+    name = models.CharField(_('规则名称'), max_length=100)
+    rule_type = models.CharField(_('规则类型'), max_length=1)  # 'A'=平均分配, 'B'=直接转发
+    email_type = models.CharField(_('邮件类型'), max_length=50)
+    description = models.TextField(_('规则描述'))
+    forward_message = models.TextField(_('转发消息'))
+    priority = models.IntegerField(_('优先级'), default=0)
+    is_active = models.BooleanField(_('是否激活'), default=True)
+
+    class Meta:
+        db_table = 'cc_forwardingrule'
+        verbose_name = _('邮件转发规则')
+        verbose_name_plural = _('邮件转发规则')
+        ordering = ['-priority']
+
+    def __str__(self):
+        return f"{self.name} ({self.email_type})"
+
+class CCForwardingAddress(models.Model):
+    """
+    邮件转发地址表
+    """
+    email = models.EmailField(_('邮箱地址'), max_length=254)
+    name = models.CharField(_('姓名'), max_length=100)
+    is_active = models.BooleanField(_('是否激活'), default=True)
+    rule = models.ForeignKey(CCForwardingRule, on_delete=models.CASCADE, related_name='addresses')
+
+    class Meta:
+        db_table = 'cc_forwardingaddress'
+        verbose_name = _('邮件转发地址')
+        verbose_name_plural = _('邮件转发地址')
+
+    def __str__(self):
+        return f"{self.name} <{self.email}>"
+
+class CCEmailForwardingLog(CCBaseModel):
+    """
+    邮件转发日志表
+    """
+    title = models.CharField(_('邮件标题'), max_length=500)
+    sender = models.CharField(_('发件人'), max_length=255)
+    received_time = models.DateTimeField(_('接收时间'))
+    classification = models.CharField(_('分类'), max_length=100)
+    email_type = models.CharField(_('邮件类型'), max_length=50)
+    forwarding_recipient = models.TextField(_('转发收件人'))
+    message_id = models.CharField(_('邮件ID'), max_length=255, null=True, blank=True)
+
+    class Meta:
+        db_table = 'cc_email_forwarding_log'
+        verbose_name = _('邮件转发日志')
+        verbose_name_plural = _('邮件转发日志')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.title} - {self.classification} - {self.email_type}"
