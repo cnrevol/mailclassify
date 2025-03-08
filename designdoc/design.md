@@ -70,3 +70,15 @@ LLM的返回结果返回给前端，显示到ChatPage.tsx页面上，
 结果保存到ccmail表。
 
 邮件查询页面，录入 
+
+
+
+
+
+
+
+    # OAuth
+    path('oauth/authorize', AzureOAuthView.get_auth_url, name='oauth-authorize'),
+    path('oauth/callback', AzureOAuthView.handle_callback, name='oauth-callback'),
+
+    
