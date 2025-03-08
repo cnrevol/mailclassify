@@ -1,9 +1,12 @@
 import json
 import logging
+import os
 from typing import Dict, Any, List, Optional
 from smolagents import Tool
 from django.conf import settings
 from django.apps import apps
+from decouple import config
+import os.path  # 仅用于路径拼接
 
 # Import models through Django's app registry
 CCEmail = apps.get_model('core', 'CCEmail')
@@ -17,21 +20,38 @@ logger = logging.getLogger(__name__)
 class EmailClassificationTool(Tool):
     """Base class for email classification tools"""
     def __init__(self, name: str, description: str):
-        super().__init__(name=name, description=description)
+        self.name = name
+        self.description = description
+        self.inputs = {
+            "email": {
+                "description": "The email object to classify",
+                "type": "object",
+                "required": True
+            }
+        }
+        # 使用 AUTHORIZED_TYPES 中的值
+        self.output_type = "object"
         self.available_categories: List[str] = []  # Will be set by the agent
+        super().__init__(name=name, description=description)
         logger.debug(f"Initialized EmailClassificationTool: {name}")
 
     def set_categories(self, categories: List[str]) -> None:
         """Set available categories for classification"""
         self.available_categories = categories
         logger.debug(f"Set categories: {categories}")
+        
+    def forward(self, email) -> Dict[str, Any]:
+        """
+        分类邮件的基础方法，需要在子类中实现
+        """
+        raise NotImplementedError("Subclasses must implement this method")
 
 class LLMClassificationTool(EmailClassificationTool):
     """Tool for classifying emails using LLM"""
     def __init__(self):
         super().__init__(
             name="llm_classify",
-            description="Classify emails using LLM model"
+            description="Classify emails using LLM based on content analysis and pattern recognition"
         )
         self.llm_provider = None
         logger.info("Initialized LLMClassificationTool")
@@ -45,51 +65,54 @@ class LLMClassificationTool(EmailClassificationTool):
         else:
             logger.error("Failed to initialize LLM provider")
 
-    def __call__(self, email) -> Dict[str, Any]:
+    def forward(self, email) -> Dict[str, Any]:
         """Classify email using LLM"""
         try:
             if not self.llm_provider:
-                logger.error("LLM provider not initialized")
                 raise ValueError("LLM provider not initialized")
 
-            # Prepare system message
+            # 提取邮件内容
+            subject = email.subject or ""
+            body = email.content or ""  # 使用 content 而不是 body
+            sender = email.sender or ""
+            
+            # 构建系统消息和用户消息
             system_message = {
                 "role": "system",
-                "content": f"""You are an email classification system. Classify the email into one of these categories:
-                {', '.join(self.available_categories)}
-                
-                Provide your response in JSON format with these fields:
-                - classification: the chosen category
-                - confidence: a score between 0 and 1
-                - explanation: brief reason for the classification"""
+                "content": f"你是一个邮件分类助手。请将邮件分类到以下类别之一：{', '.join(self.available_categories)}。请以JSON格式返回结果，包含以下字段：classification（分类结果）、confidence（置信度，0-1之间的数值）和explanation（分类理由的简短解释）。"
             }
-            logger.debug("Prepared system message for LLM")
-
-            # Prepare email content
+            
             user_message = {
                 "role": "user",
-                "content": f"""Subject: {email.subject}
-                From: {email.sender}
-                Content: {email.content[:1000]}  # Limit content length
-                Attachments: {len(email.attachments_info)} files"""
+                "content": f"请分析以下邮件内容：\n\n发件人: {sender}\n主题: {subject}\n内容:\n{body[:1000]}..."
             }
-            logger.debug("Prepared user message for LLM")
-
-            # Get classification from LLM
-            response = self.llm_provider.chat([system_message, user_message])
+            
+            # 发送消息到 LLM
+            messages = [system_message, user_message]
+            logger.info(f"Sending messages to LLM: {messages}")
+            
+            # 获取LLM响应
+            response = self.llm_provider.chat(messages)
             if not response:
-                logger.error("No response from LLM")
                 raise ValueError("No response from LLM")
-
-            # Parse response
-            result = json.loads(response)
-            logger.info(f"LLM classification result: {result}")
-            return result
-
+            
+            # 解析响应
+            try:
+                result = json.loads(response)
+                logger.info(f"LLM classification result: {result}")
+                return result
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse LLM response as JSON: {response}")
+                return {
+                    "classification": self.available_categories[0] if self.available_categories else "unknown",
+                    "confidence": 0.5,
+                    "explanation": f"Error parsing LLM response: {response[:100]}..."
+                }
+                
         except Exception as e:
-            logger.error(f"Error in LLM classification: {str(e)}", exc_info=True)
+            logger.error(f"Error in LLM classification: {str(e)}")
             return {
-                "classification": "unknown",
+                "classification": self.available_categories[0] if self.available_categories else "unknown",
                 "confidence": 0.0,
                 "explanation": f"Error: {str(e)}"
             }
@@ -99,40 +122,85 @@ class BertClassificationTool(EmailClassificationTool):
     def __init__(self):
         super().__init__(
             name="bert_classify",
-            description="Classify emails using BERT model"
+            description="Classify emails using BERT model with pre-trained language understanding"
         )
         self.model_provider = None
 
     def setup(self) -> None:
-        """Setup BERT provider"""
-        self.model_provider = LLMFactory.get_instance_by_id("bert", 0)
+        """Setup BERT model"""
+        try:
+            # 使用 decouple.config 获取模型路径
+            bert_model_path = config('BERT_MODEL_PATH', default='./models/bert')
+            
+            # 检查路径是否存在且可访问
+            if not os.path.exists(bert_model_path):
+                logger.error(f"BERT model path does not exist: {bert_model_path}")
+                return
+                
+            # 检查权限
+            try:
+                with open(os.path.join(bert_model_path, 'test_access.tmp'), 'w') as f:
+                    f.write('test')
+                os.remove(os.path.join(bert_model_path, 'test_access.tmp'))
+            except PermissionError:
+                logger.error(f"Permission denied for BERT model path: {bert_model_path}")
+                logger.error("Please check file permissions or run the application with appropriate privileges")
+                return
+            except Exception as e:
+                logger.warning(f"Could not verify write permissions: {str(e)}")
+            
+            # 创建配置字典
+            config_dict = {
+                'tokenizer_path': bert_model_path,
+                'model_path': bert_model_path  # 使用同一路径，让 BertProvider 自己处理文件名
+            }
+            
+            logger.info(f"Using BERT model path: {bert_model_path}")
+            self.model_provider = BertProvider(config_dict)
+            self.model_provider.initialize()
+            logger.info("BERT model initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize BERT model: {str(e)}")
 
-    def __call__(self, email) -> Dict[str, Any]:
+    def forward(self, email) -> Dict[str, Any]:
         """Classify email using BERT"""
         try:
             if not self.model_provider:
-                raise ValueError("BERT provider not initialized")
+                raise ValueError("BERT model not initialized")
 
-            # Prepare message for classification
-            message = {
+            # 提取邮件内容
+            subject = email.subject or ""
+            body = email.content or ""  # 使用 content 而不是 body
+            
+            # 构建消息
+            message = [{
                 "role": "user",
-                "content": f"{email.subject}\n{email.content[:1000]}"
-            }
-
-            # Get classification from BERT
-            response = self.model_provider.chat([message])
+                "content": f"Subject: {subject}\n\nBody: {body[:1000]}"
+            }]
+            
+            # 获取分类结果
+            response = self.model_provider.chat(message)
             if not response:
-                raise ValueError("No response from BERT")
-
-            # Parse response
-            result = json.loads(response)
+                raise ValueError("No response from BERT model")
+            
+            # 解析响应
+            try:
+                result = json.loads(response)
+            except json.JSONDecodeError:
+                # 如果不是有效的JSON，创建一个默认结果
+                result = {
+                    "classification": self.available_categories[0] if self.available_categories else "unknown",
+                    "confidence": 0.5,
+                    "explanation": f"Failed to parse response: {response[:100]}..."
+                }
+                
             logger.info(f"BERT classification result: {result}")
             return result
-
+            
         except Exception as e:
             logger.error(f"Error in BERT classification: {str(e)}")
             return {
-                "classification": "unknown",
+                "classification": self.available_categories[0] if self.available_categories else "unknown",
                 "confidence": 0.0,
                 "explanation": f"Error: {str(e)}"
             }
@@ -142,40 +210,84 @@ class FastTextClassificationTool(EmailClassificationTool):
     def __init__(self):
         super().__init__(
             name="fasttext_classify",
-            description="Classify emails using FastText model"
+            description="Classify emails using FastText model for efficient text classification"
         )
         self.model_provider = None
 
     def setup(self) -> None:
-        """Setup FastText provider"""
-        self.model_provider = LLMFactory.get_instance_by_id("fasttext", 0)
+        """Setup FastText model"""
+        try:
+            # 使用 decouple.config 获取模型路径
+            fasttext_model_path = config('FASTTEXT_MODEL_PATH', default='./models/fasttext/model.bin')
+            
+            # 检查文件是否存在
+            if not os.path.isfile(fasttext_model_path):
+                logger.error(f"FastText model file does not exist: {fasttext_model_path}")
+                return
+                
+            # 检查权限
+            try:
+                with open(fasttext_model_path, 'rb') as f:
+                    # 只读取一小部分来测试访问权限
+                    _ = f.read(10)
+            except PermissionError:
+                logger.error(f"Permission denied for FastText model file: {fasttext_model_path}")
+                logger.error("Please check file permissions or run the application with appropriate privileges")
+                return
+            except Exception as e:
+                logger.warning(f"Could not verify read permissions: {str(e)}")
+            
+            # 创建配置字典
+            config_dict = {
+                'model_path': fasttext_model_path
+            }
+            
+            logger.info(f"Using FastText model path: {fasttext_model_path}")
+            self.model_provider = FastTextProvider(config_dict)
+            self.model_provider.initialize()
+            logger.info("FastText model initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize FastText model: {str(e)}")
 
-    def __call__(self, email) -> Dict[str, Any]:
+    def forward(self, email) -> Dict[str, Any]:
         """Classify email using FastText"""
         try:
             if not self.model_provider:
-                raise ValueError("FastText provider not initialized")
+                raise ValueError("FastText model not initialized")
 
-            # Prepare message for classification
-            message = {
+            # 提取邮件内容
+            subject = email.subject or ""
+            body = email.content or ""  # 使用 content 而不是 body
+            
+            # 构建消息
+            message = [{
                 "role": "user",
-                "content": f"{email.subject}\n{email.content[:1000]}"
-            }
-
-            # Get classification from FastText
-            response = self.model_provider.chat([message])
+                "content": f"Subject: {subject}\n\nBody: {body[:1000]}"
+            }]
+            
+            # 获取分类结果
+            response = self.model_provider.chat(message)
             if not response:
                 raise ValueError("No response from FastText")
-
-            # Parse response
-            result = json.loads(response)
+            
+            # 解析响应
+            try:
+                result = json.loads(response)
+            except json.JSONDecodeError:
+                # 如果不是有效的JSON，创建一个默认结果
+                result = {
+                    "classification": self.available_categories[0] if self.available_categories else "unknown",
+                    "confidence": 0.5,
+                    "explanation": f"Failed to parse response: {response[:100]}..."
+                }
+                
             logger.info(f"FastText classification result: {result}")
             return result
-
+            
         except Exception as e:
             logger.error(f"Error in FastText classification: {str(e)}")
             return {
-                "classification": "unknown",
+                "classification": self.available_categories[0] if self.available_categories else "unknown",
                 "confidence": 0.0,
                 "explanation": f"Error: {str(e)}"
             }
@@ -233,7 +345,7 @@ class EmailClassificationAgent:
             if not tool:
                 raise ValueError(f"Unknown classification method: {method}")
 
-            result = tool(email)
+            result = tool.forward(email)
             logger.info(f"Classification result using {method}: {result}")
             return result
 

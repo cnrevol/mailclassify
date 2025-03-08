@@ -48,6 +48,7 @@ class CCAzureOpenAI(CCLLMBase):
     resource_name = models.CharField(max_length=100, verbose_name="资源名称")
 
     class Meta:
+        db_table = 'cc_azure_openai'
         verbose_name = "Azure OpenAI"
         verbose_name_plural = verbose_name
 

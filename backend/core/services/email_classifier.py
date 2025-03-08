@@ -10,24 +10,50 @@ class EmailClassifier:
     """邮件分类服务"""
 
     @staticmethod
-    def classify_emails(emails: List[CCEmail], method: str = "decision_tree") -> Dict[str, List[Dict[str, Any]]]:
+    def classify_emails(emails: List[CCEmail], method: str = "sequence") -> Dict[str, List[Dict[str, Any]]]:
         """
         对邮件进行分类
         
         Args:
             emails: 待分类的邮件列表
-            method: 分类方法 ('decision_tree', 'llm', 'bert', 'fasttext')
+            method: 分类方法 ('decision_tree', 'llm', 'bert', 'fasttext', 'sequence')
             
         Returns:
             分类结果字典，key为分类名称，value为该分类下的邮件列表
         """
         try:
             logger.info(f"开始邮件分类，共 {len(emails)} 封邮件，使用方法: {method}")
+            results = {}
             
-            if method == "decision_tree":
-                results = EmailClassifier._classify_by_decision_tree(emails)
-            else:
-                results = EmailClassifier._classify_by_ai_agent(emails, method)
+            for email in emails:
+                logger.debug(f"开始处理邮件: {email.subject[:50]}...")
+                
+                if method == "decision_tree":
+                    classification_result = EmailClassifier._classify_by_decision_tree(email)
+                elif method == "sequence":
+                    # 先使用决策树进行分类
+                    logger.info(f"序列分类：第一步 - 对邮件 '{email.subject[:50]}...' 使用决策树进行分类")
+                    classification_result = EmailClassifier._classify_by_decision_tree(email)
+                    
+                    # 如果邮件未分类，使用 AI 代理进行二次分类
+                    if classification_result['classification'] == 'unclassified':
+                        logger.info(f"序列分类：邮件 '{email.subject[:50]}...' 未分类，使用 AI 代理进行二次分类")
+                        classification_result = EmailClassifier._classify_by_ai_agent(email, 'llm')
+                        logger.info("序列分类：完成 AI 代理二次分类")
+                    else:
+                        logger.info(f"序列分类：邮件已通过决策树成功分类为 '{classification_result['classification']}'")
+                else:
+                    classification_result = EmailClassifier._classify_by_ai_agent(email, method)
+                
+                # 将结果添加到对应分类中
+                category = classification_result['classification']
+                if category not in results:
+                    results[category] = []
+                results[category].append({
+                    'email': email,
+                    'rule_name': classification_result['rule_name'],
+                    'explanation': classification_result['explanation']
+                })
                 
             # 记录分类结果统计
             for category, items in results.items():
@@ -39,62 +65,50 @@ class EmailClassifier:
             return {"error": [{"email": None, "rule_name": None, "explanation": str(e)}]}
 
     @staticmethod
-    def _classify_by_decision_tree(emails: List[CCEmail]) -> Dict[str, List[Dict[str, Any]]]:
-        """使用决策树规则进行分类"""
+    def _classify_by_decision_tree(email: CCEmail) -> Dict[str, Any]:
+        """使用决策树规则对单个邮件进行分类"""
         try:
             # 获取所有激活的规则
             rules = CCEmailClassifyRule.objects.filter(is_active=True).order_by('priority')
             logger.info(f"获取到 {len(rules)} 条活动规则")
-            results = {}
 
-            for email in emails:
-                logger.debug(f"开始处理邮件: {email.subject[:50]}...")
-                classified = False
-                
-                # 遍历规则进行匹配
-                for rule in rules:
-                    logger.debug(f"尝试匹配规则: {rule.name}")
-                    if EmailClassifier._match_rule(email, rule):
-                        # 添加到分类结果
-                        if rule.classification not in results:
-                            results[rule.classification] = []
-                            
-                        results[rule.classification].append({
-                            'email': email,
-                            'rule_name': rule.name,
-                            'explanation': f"Matched rule: {rule.name}"
-                        })
-                        logger.info(f"邮件 '{email.subject[:50]}...' 匹配规则 '{rule.name}'，归类为 '{rule.classification}'")
-                        classified = True
-                        break
-                
-                # 如果没有匹配的规则，归类为未分类
-                if not classified:
-                    if 'unclassified' not in results:
-                        results['unclassified'] = []
-                    results['unclassified'].append({
-                        'email': email,
-                        'rule_name': None,
-                        'explanation': "No matching rules found"
-                    })
-                    logger.info(f"邮件 '{email.subject[:50]}...' 未匹配任何规则，归类为 'unclassified'")
+            # 遍历规则进行匹配
+            for rule in rules:
+                logger.debug(f"尝试匹配规则: {rule.name}")
+                if EmailClassifier._match_rule(email, rule):
+                    logger.info(f"邮件 '{email.subject[:50]}...' 匹配规则 '{rule.name}'，归类为 '{rule.classification}'")
+                    return {
+                        'classification': rule.classification,
+                        'rule_name': rule.name,
+                        'explanation': f"Matched rule: {rule.name}"
+                    }
 
-            return results
+            # 如果没有匹配的规则，归类为未分类
+            logger.info(f"邮件 '{email.subject[:50]}...' 未匹配任何规则，归类为 'unclassified'")
+            return {
+                'classification': 'unclassified',
+                'rule_name': None,
+                'explanation': "No matching rules found"
+            }
 
         except Exception as e:
             logger.error(f"决策树分类过程中出错: {str(e)}", exc_info=True)
             raise
 
     @staticmethod
-    def _classify_by_ai_agent(emails: List[CCEmail], method: str) -> Dict[str, List[Dict[str, Any]]]:
-        """使用AI代理进行分类"""
+    def _classify_by_ai_agent(email: CCEmail, method: str) -> Dict[str, Any]:
+        """使用AI代理对单个邮件进行分类"""
         try:
             # 获取可用的分类类别
             categories = list(CCEmailClassifyRule.objects.values_list(
                 'classification', flat=True).distinct())
             if not categories:
                 logger.error("没有找到可用的分类类别")
-                raise ValueError("No classification categories available")
+                return {
+                    'classification': 'unclassified',
+                    'rule_name': f"{method.upper()} Classification",
+                    'explanation': "No classification categories available"
+                }
 
             logger.info(f"使用 {method} 方法进行分类，可用类别: {categories}")
 
@@ -103,31 +117,26 @@ class EmailClassifier:
             agent.setup()  # 使用默认配置
             logger.info(f"AI 分类代理初始化完成")
 
-            results = {}
-            for email in emails:
-                logger.debug(f"开始处理邮件: {email.subject[:50]}...")
-                
-                # 使用指定方法进行分类
-                result = agent.classify_email(email, method)
-                
-                # 获取分类结果
-                classification = result.get('classification', 'unknown')
-                if classification not in results:
-                    results[classification] = []
-                
-                results[classification].append({
-                    'email': email,
-                    'rule_name': f"{method.upper()} Classification",
-                    'explanation': result.get('explanation', 'No explanation provided')
-                })
-                
-                logger.info(f"邮件 '{email.subject[:50]}...' 被 {method} 分类为 '{classification}'")
-
-            return results
+            # 使用指定方法进行分类
+            result = agent.classify_email(email, method)
+            
+            # 获取分类结果
+            classification = result.get('classification', 'unclassified')
+            logger.info(f"邮件 '{email.subject[:50]}...' 被 {method} 分类为 '{classification}'")
+            
+            return {
+                'classification': classification,
+                'rule_name': f"{method.upper()} Classification",
+                'explanation': result.get('explanation', 'No explanation provided')
+            }
 
         except Exception as e:
             logger.error(f"AI 代理分类过程中出错: {str(e)}", exc_info=True)
-            raise
+            return {
+                'classification': 'unclassified',
+                'rule_name': f"{method.upper()} Classification",
+                'explanation': f"Error during classification: {str(e)}"
+            }
 
     @staticmethod
     def _match_rule(email: CCEmail, rule: CCEmailClassifyRule) -> bool:

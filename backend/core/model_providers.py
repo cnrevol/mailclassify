@@ -5,9 +5,13 @@ import torch
 from transformers import BertTokenizer
 import fasttext
 from django.conf import settings
+from decouple import config
 # from azure.storage.blob import BlobServiceClient
 from .base_providers import LLMProvider
 import json
+from . import train_bert__core
+from .train_bert__core import BertClassifier 
+
 
 logger = logging.getLogger('core')
 
@@ -15,10 +19,14 @@ class BertProvider(LLMProvider):
     """BERT模型提供者"""
     def initialize(self) -> bool:
         try:
-            # 获取模型路径
-            tokenizer_path = self.config.get('tokenizer_path', settings.BERT_MODEL_PATH)
-            model_path = self.config.get('model_path', 
-                os.path.join(tokenizer_path, 'clf_bert_weights_en.pt'))
+            # 获取模型路径，优先使用配置中的路径，然后使用环境变量中的路径
+            tokenizer_path = self.config.get('tokenizer_path')
+            if not tokenizer_path:
+                tokenizer_path = config('BERT_MODEL_PATH', default='./models/bert')
+                
+            model_path = self.config.get('model_path')
+            if not model_path:
+                model_path = os.path.join(tokenizer_path, 'clf_bert_weights_en.pt')
 
             # 如果使用Azure存储，下载模型
             # if settings.AZURE_STORAGE_CONNECTION_STRING:
@@ -26,10 +34,25 @@ class BertProvider(LLMProvider):
             #     tokenizer_path = os.path.dirname(model_path)
 
             logger.info(f"Loading BERT model from {model_path}")
-            
-            # 加载tokenizer和模型
+            logger.info(f"Using tokenizer from {tokenizer_path}")
+
+            # 加载分词器和模型
             self.tokenizer = BertTokenizer.from_pretrained(tokenizer_path)
-            self.model = torch.load(model_path, map_location="cpu")
+            
+            # 加载标签映射
+            labels_path = os.path.join(os.path.dirname(model_path), 'labels.json')
+            if os.path.exists(labels_path):
+                with open(labels_path, 'r', encoding='utf-8') as f:
+                    self.labels = json.load(f)
+                    self.labels_reverse = {v: k for k, v in self.labels.items()}
+            else:
+                # 默认标签
+                self.labels = {"work": 0, "personal": 1, "spam": 2, "other": 3}
+                self.labels_reverse = {0: "work", 1: "personal", 2: "spam", 3: "other"}
+                
+            # 初始化模型
+            self.model = BertClassifier('bert-base-uncased', len(self.labels))
+            self.model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
             self.model.eval()
             
             logger.info("BERT model loaded successfully")
@@ -109,17 +132,20 @@ class FastTextProvider(LLMProvider):
     """FastText模型提供者"""
     def initialize(self) -> bool:
         try:
-            # 获取模型路径
-            model_path = self.config.get('model_path', settings.FASTTEXT_MODEL_PATH)
-            
+            # 获取模型路径，优先使用配置中的路径，然后使用环境变量中的路径
+            model_path = self.config.get('model_path')
+            if not model_path:
+                model_path = config('FASTTEXT_MODEL_PATH', default='./models/fasttext/model.bin')
+
             # 如果使用Azure存储，下载模型
             # if settings.AZURE_STORAGE_CONNECTION_STRING:
             #     model_path = self._download_from_azure(model_path)
-            
+
             logger.info(f"Loading FastText model from {model_path}")
             
             # 加载模型
             self.model = fasttext.load_model(model_path)
+            
             logger.info("FastText model loaded successfully")
             return True
         except Exception as e:
@@ -127,26 +153,50 @@ class FastTextProvider(LLMProvider):
             return False
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> Optional[str]:
-        """使用FastText模型进行对话"""
+        """使用FastText模型进行分类"""
         try:
-            # 获取最后一条用户消息
-            user_message = next((msg['content'] for msg in reversed(messages) 
-                               if msg['role'] == 'user'), None)
-            if not user_message:
+            if not hasattr(self, 'model') or self.model is None:
+                logger.error("FastText model not initialized")
                 return None
-
+                
+            # 提取用户消息
+            user_message = ""
+            for message in messages:
+                if message.get('role') == 'user':
+                    user_message += message.get('content', '') + " "
+            
+            if not user_message.strip():
+                logger.warning("Empty user message")
+                return json.dumps({
+                    "classification": "unknown",
+                    "confidence": 0.0,
+                    "explanation": "Empty message"
+                })
+            
             # 使用模型进行预测
-            predictions = self.model.predict(user_message)
-            predicted_class = predictions[0][0].replace('__label__', '')
-            confidence = float(predictions[1][0])
-
+            try:
+                predictions = self.model.predict(user_message)
+                if isinstance(predictions, tuple) and len(predictions) >= 2:
+                    predicted_class = predictions[0][0].replace('__label__', '')
+                    confidence = float(predictions[1][0])
+                else:
+                    logger.warning(f"Unexpected prediction format: {predictions}")
+                    predicted_class = "unknown"
+                    confidence = 0.0
+            except Exception as e:
+                logger.error(f"Error during prediction: {str(e)}")
+                predicted_class = "unknown"
+                confidence = 0.0
+            
             # 返回预测结果
             result = {
                 "classification": predicted_class,
                 "confidence": confidence,
-                "explanation": f"FastText model prediction with confidence {confidence:.2f}"
+                "explanation": f"FastText classified as '{predicted_class}' with confidence {confidence:.2f}"
             }
+            
             return json.dumps(result)
+            
         except Exception as e:
             logger.error(f"Error in FastText chat: {str(e)}")
             return None
