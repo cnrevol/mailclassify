@@ -62,3 +62,11 @@ LLM的返回结果返回给前端，显示到ChatPage.tsx页面上，
 返回的结果可能是文本，表格，表格包含md表格，html表格。图片，要求可以显示这些内容。
 
 
+
+在MailConfigPage.tsx 页面操作列后，再添加列，添加按钮，按钮名是  分类开始， 需要有radiobutton的开关效果，点击打开后，按钮名变为分类中。
+调用后端 OutlookMailService 类 fetch_emails 方法对应的 api ，views.py 中 OutlookMailView 。 
+取得这个邮箱的邮件。 参数默认是2小时以内。
+之后，调用 EmailClassifier 的 classify_emails 用 decision_tree 方式对读入的邮件进行分类。
+结果保存到ccmail表。
+
+邮件查询页面，录入 

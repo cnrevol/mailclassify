@@ -19,10 +19,12 @@ class EmailClassificationTool(Tool):
     def __init__(self, name: str, description: str):
         super().__init__(name=name, description=description)
         self.available_categories: List[str] = []  # Will be set by the agent
+        logger.debug(f"Initialized EmailClassificationTool: {name}")
 
     def set_categories(self, categories: List[str]) -> None:
         """Set available categories for classification"""
         self.available_categories = categories
+        logger.debug(f"Set categories: {categories}")
 
 class LLMClassificationTool(EmailClassificationTool):
     """Tool for classifying emails using LLM"""
@@ -32,15 +34,22 @@ class LLMClassificationTool(EmailClassificationTool):
             description="Classify emails using LLM model"
         )
         self.llm_provider = None
+        logger.info("Initialized LLMClassificationTool")
 
     def setup(self, provider_name: str = "azure", instance_id: int = 1) -> None:
         """Setup LLM provider"""
+        logger.info(f"Setting up LLM provider: {provider_name}, instance: {instance_id}")
         self.llm_provider = LLMFactory.get_instance_by_id(provider_name, instance_id)
+        if self.llm_provider:
+            logger.info("LLM provider initialized successfully")
+        else:
+            logger.error("Failed to initialize LLM provider")
 
     def __call__(self, email) -> Dict[str, Any]:
         """Classify email using LLM"""
         try:
             if not self.llm_provider:
+                logger.error("LLM provider not initialized")
                 raise ValueError("LLM provider not initialized")
 
             # Prepare system message
@@ -54,6 +63,7 @@ class LLMClassificationTool(EmailClassificationTool):
                 - confidence: a score between 0 and 1
                 - explanation: brief reason for the classification"""
             }
+            logger.debug("Prepared system message for LLM")
 
             # Prepare email content
             user_message = {
@@ -63,10 +73,12 @@ class LLMClassificationTool(EmailClassificationTool):
                 Content: {email.content[:1000]}  # Limit content length
                 Attachments: {len(email.attachments_info)} files"""
             }
+            logger.debug("Prepared user message for LLM")
 
             # Get classification from LLM
             response = self.llm_provider.chat([system_message, user_message])
             if not response:
+                logger.error("No response from LLM")
                 raise ValueError("No response from LLM")
 
             # Parse response
@@ -75,7 +87,7 @@ class LLMClassificationTool(EmailClassificationTool):
             return result
 
         except Exception as e:
-            logger.error(f"Error in LLM classification: {str(e)}")
+            logger.error(f"Error in LLM classification: {str(e)}", exc_info=True)
             return {
                 "classification": "unknown",
                 "confidence": 0.0,

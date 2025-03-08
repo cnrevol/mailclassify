@@ -32,11 +32,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
+            logger.info("Starting email classification command")
+            logger.info(f"Classification method: {options['method']}")
+            
             # 构建查询条件
             query = {}
             if options['hours']:
                 time_threshold = timezone.now() - timedelta(hours=options['hours'])
                 query['received_time__gte'] = time_threshold
+                logger.info(f"Processing emails from the last {options['hours']} hours")
 
             # 获取未分类的邮件
             emails = list(CCEmail.objects.filter(
@@ -44,22 +48,39 @@ class Command(BaseCommand):
                 **query
             ).order_by('-received_time'))
 
-            self.stdout.write(f"Found {len(emails)} unclassified emails")
-            self.stdout.write(f"Using classification method: {options['method']}")
+            logger.info(f"Found {len(emails)} unclassified emails")
+            
+            if not emails:
+                logger.info("No emails to classify")
+                self.stdout.write("No emails to classify")
+                return
 
             # 进行分类
+            logger.debug("Starting classification process")
             results = EmailClassifier.classify_emails(emails, method=options['method'])
 
             # 输出分类结果
+            total_processed = 0
             for classification, emails_data in results.items():
-                self.stdout.write(f"\nClassification: {classification}")
-                self.stdout.write(f"Found {len(emails_data)} emails")
+                logger.info(f"Classification '{classification}': {len(emails_data)} emails")
+                total_processed += len(emails_data)
                 
                 for data in emails_data:
                     email = data['email']
+                    logger.debug(
+                        f"Classifying email: ID={email.id}, "
+                        f"Subject='{email.subject}', "
+                        f"Sender='{email.sender}'"
+                    )
+                    
                     # 更新邮件分类
-                    email.categories = classification
-                    email.save(update_fields=['categories'])
+                    try:
+                        email.categories = classification
+                        email.save(update_fields=['categories'])
+                        logger.debug(f"Successfully updated email {email.id} category to '{classification}'")
+                    except Exception as e:
+                        logger.error(f"Failed to update email {email.id} category: {str(e)}")
+                        continue
                     
                     self.stdout.write(
                         f"- {email.subject} ({email.sender})\n"
@@ -68,8 +89,11 @@ class Command(BaseCommand):
                         f"  Reason: {data['explanation']}"
                     )
 
-            self.stdout.write(self.style.SUCCESS('Successfully classified emails'))
+            logger.info(f"Classification completed. Total processed: {total_processed} emails")
+            self.stdout.write(self.style.SUCCESS(f'Successfully classified {total_processed} emails'))
 
         except Exception as e:
-            logger.error(f"Error running classification command: {str(e)}")
-            self.stdout.write(self.style.ERROR(f'Error: {str(e)}')) 
+            logger.error("Error running classification command", exc_info=True)
+            self.stdout.write(
+                self.style.ERROR(f'Error: {str(e)}')
+            ) 

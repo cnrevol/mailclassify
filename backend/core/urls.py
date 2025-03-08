@@ -13,7 +13,9 @@ from .views import (
     OpenAIViewSet,
     LLMCompletionView,
     OutlookMailView,
-    ChatView
+    OutlookOAuthView,
+    ChatView,
+    ClassifyEmailsView
 )
 
 app_name = 'core'
@@ -41,6 +43,13 @@ urlpatterns = [
 
     # 邮件相关的URL
     path('mail/outlook/', OutlookMailView.as_view(), name='outlook_mail'),
+    
+    # OAuth 相关路由
+    path('mail/oauth/authorize', OutlookOAuthView.get_auth_url, name='oauth-authorize'),
+    path('classifier/oauth/callback', OutlookOAuthView.handle_callback, name='oauth-callback'),
+    
+    # 邮件分类
+    path('mail/classify/', ClassifyEmailsView.as_view(), name='classify_emails'),
 
     # 聊天接口
     path('chat/', ChatView.as_view(), name='chat'),

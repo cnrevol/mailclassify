@@ -22,20 +22,34 @@ class OutlookMailService:
 
     def _get_access_token(self) -> str:
         """获取访问令牌"""
+        # 如果已有有效的访问令牌，直接返回
         if (self.user_mail.access_token and self.user_mail.token_expires and
                 self.user_mail.token_expires > timezone.now()):
+            logger.debug("使用现有的访问令牌")
             return self.user_mail.access_token
 
-        # 需要获取新的令牌
+        # 如果有刷新令牌，使用刷新令牌获取新的访问令牌
+        if self.user_mail.refresh_token:
+            logger.debug("使用刷新令牌获取新的访问令牌")
+            return self._refresh_access_token()
+        
+        # 没有刷新令牌，无法自动获取访问令牌
+        logger.error("没有刷新令牌，无法自动获取访问令牌")
+        raise ValueError("需要用户授权。请先完成 OAuth 授权流程获取刷新令牌。")
+
+    def _refresh_access_token(self) -> str:
+        """使用刷新令牌获取新的访问令牌"""
         token_url = f"{self.AUTH_BASE}/{self.user_mail.tenant_id}/oauth2/v2.0/token"
         data = {
-            'grant_type': 'client_credentials',
+            'grant_type': 'refresh_token',
             'client_id': self.user_mail.client_id,
             'client_secret': self.user_mail.client_secret,
+            'refresh_token': self.user_mail.refresh_token,
             'scope': self.SCOPE
         }
 
         try:
+            logger.debug(f"刷新访问令牌: {token_url}")
             response = requests.post(token_url, data=data)
             response.raise_for_status()
             token_data = response.json()
@@ -43,11 +57,18 @@ class OutlookMailService:
             # 更新令牌信息
             self.user_mail.access_token = token_data['access_token']
             self.user_mail.token_expires = timezone.now() + timedelta(seconds=token_data['expires_in'])
-            self.user_mail.save(update_fields=['access_token', 'token_expires'])
+            
+            # 如果响应中包含新的刷新令牌，也更新它
+            if 'refresh_token' in token_data:
+                self.user_mail.refresh_token = token_data['refresh_token']
+                self.user_mail.save(update_fields=['access_token', 'token_expires', 'refresh_token'])
+            else:
+                self.user_mail.save(update_fields=['access_token', 'token_expires'])
 
+            logger.debug("成功刷新访问令牌")
             return self.user_mail.access_token
         except Exception as e:
-            logger.error(f"Error getting access token: {str(e)}")
+            logger.error(f"刷新访问令牌失败: {str(e)}")
             raise
 
     def _get_headers(self) -> dict:

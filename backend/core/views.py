@@ -18,6 +18,17 @@ from rest_framework.viewsets import ModelViewSet
 from .services.mail_service import OutlookMailService
 import logging
 from .chat_service import ChatService
+import requests
+from django.utils import timezone
+from datetime import timedelta
+from django.urls import reverse
+from django.http import HttpResponseRedirect
+import uuid
+from urllib.parse import urlencode
+from django.shortcuts import redirect
+from django.conf import settings
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.permissions import AllowAny
 
 # 获取logger
 logger = logging.getLogger('core')
@@ -230,6 +241,306 @@ class OutlookMailView(APIView):
 
         except Exception as e:
             logger.error(f"Error fetching emails: {str(e)}")
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class OutlookOAuthView(APIView):
+    @staticmethod
+    @api_view(['GET'])
+    @permission_classes([permissions.IsAuthenticated])
+    def get_auth_url(request):
+        """
+        获取 OAuth 授权 URL
+        
+        参数:
+        - email: 邮箱地址
+        - email_id: 邮箱配置ID
+        """
+        try:
+            email = request.query_params.get('email')
+            email_id = request.query_params.get('email_id')
+            
+            if not email:
+                return Response(
+                    {'error': '邮箱地址参数是必需的'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            if not email_id:
+                return Response(
+                    {'error': '邮箱配置ID是必需的'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            # 获取用户邮件配置
+            user_mail = CCUserMailInfo.objects.filter(email=email, is_active=True).first()
+            if not user_mail:
+                return Response(
+                    {'error': '未找到邮箱配置'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # 构建回调 URL，强制使用 localhost，并添加 email_id 参数
+            callback_uri = request.build_absolute_uri(settings.OAUTH_SETTINGS['redirect_path'])
+            callback_uri = callback_uri.replace('127.0.0.1', 'localhost')
+            if '?' in callback_uri:
+                callback_uri += f'&email_id={email_id}'
+            else:
+                callback_uri += f'?email_id={email_id}'
+                
+            # 构建授权参数
+            auth_params = {
+                'client_id': user_mail.client_id,
+                'response_type': 'code',
+                'redirect_uri': callback_uri,
+                'scope': ' '.join(settings.OAUTH_SETTINGS['scope']),
+                'response_mode': 'query',
+                'access_type': 'offline',  # 明确请求离线访问
+                'prompt': 'consent'  # 强制显示同意页面，确保获取刷新令牌
+            }
+            
+            # 构建授权 URL
+            auth_url = (
+                f"{settings.OAUTH_SETTINGS['authority']}"
+                f"{settings.OAUTH_SETTINGS['authorize_endpoint']}?"
+                f"{urlencode(auth_params)}"
+            )
+            
+            logger.info(f"生成授权 URL，参数: {auth_params}")
+            logger.debug(f"完整授权 URL: {auth_url}")
+            
+            return Response({'auth_url': auth_url})
+            
+        except Exception as e:
+            logger.error(f"生成授权 URL 时出错: {str(e)}", exc_info=True)
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @staticmethod
+    @api_view(['GET'])
+    @permission_classes([AllowAny])
+    @authentication_classes([])
+    def handle_callback(request):
+        """
+        处理 OAuth 回调
+        """
+        try:
+            logger.info("收到 OAuth 回调")
+            logger.info(f"查询参数: {request.GET}")
+            
+            # 检查是否有错误
+            error = request.GET.get('error')
+            error_description = request.GET.get('error_description')
+            if error:
+                logger.error(f"OAuth 授权错误: {error} - {error_description}")
+                return Response({
+                    'error': error,
+                    'error_description': error_description
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+            # 获取授权码
+            code = request.GET.get('code')
+            if not code:
+                logger.error("未收到授权码")
+                return Response({
+                    'error': 'no_code',
+                    'error_description': '未收到授权码'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # 从查询参数中获取邮箱 ID
+            email_id = request.GET.get('email_id')
+            if not email_id:
+                logger.error("未提供邮箱 ID")
+                return Response({
+                    'error': 'no_email_id',
+                    'error_description': '未提供邮箱 ID'
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+            # 获取用户邮件配置
+            try:
+                user_mail = CCUserMailInfo.objects.get(id=email_id)
+            except CCUserMailInfo.DoesNotExist:
+                logger.error(f"未找到 ID 为 {email_id} 的邮箱配置")
+                return Response({
+                    'error': 'email_not_found',
+                    'error_description': '未找到邮箱配置'
+                }, status=status.HTTP_404_NOT_FOUND)
+                
+            # 使用授权码获取访问令牌
+            token_url = f"{settings.OAUTH_SETTINGS['authority']}{settings.OAUTH_SETTINGS['token_endpoint']}"
+            
+            # 构建回调 URL，强制使用 localhost，并添加 email_id 参数
+            callback_uri = request.build_absolute_uri(settings.OAUTH_SETTINGS['redirect_path'])
+            callback_uri = callback_uri.replace('127.0.0.1', 'localhost')
+            if '?' in callback_uri:
+                callback_uri += f'&email_id={email_id}'
+            else:
+                callback_uri += f'?email_id={email_id}'
+            
+            token_data = {
+                'client_id': user_mail.client_id,
+                'client_secret': user_mail.client_secret,
+                'scope': ' '.join(settings.OAUTH_SETTINGS['scope']),
+                'code': code,
+                'redirect_uri': callback_uri,
+                'grant_type': 'authorization_code',
+            }
+            
+            logger.info("使用配置的凭据请求令牌")
+            
+            # 发送请求获取令牌
+            token_response = requests.post(token_url, data=token_data)
+            logger.info(f"令牌响应状态: {token_response.status_code}")
+            
+            if token_response.status_code == 200:
+                tokens = token_response.json()
+                logger.info("成功获取令牌")
+                logger.debug(f"令牌响应内容: {tokens.keys()}")  # 只记录键名，不记录敏感信息
+                
+                # 更新用户邮件配置
+                try:
+                    user_mail.access_token = tokens['access_token']
+                    if 'refresh_token' in tokens:
+                        user_mail.refresh_token = tokens['refresh_token']
+                    user_mail.token_expires = timezone.now() + timedelta(seconds=tokens['expires_in'])
+                    user_mail.save(update_fields=['access_token', 'refresh_token', 'token_expires'])
+                    
+                    logger.info(f"成功更新 {user_mail.email} 的令牌")
+                except Exception as e:
+                    logger.error(f"保存令牌时出错: {str(e)}")
+                    return Response({
+                        'error': 'token_save_error',
+                        'error_description': '保存令牌时出错'
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+                # 重定向到前端页面
+                redirect_url = settings.OAUTH_SETTINGS['frontend_redirect_url'] + "?auth_success=true"
+                logger.info(f"重定向到: {redirect_url}")
+                
+                return redirect(redirect_url)
+            else:
+                logger.error(f"令牌请求失败: {token_response.text}")
+                try:
+                    error_data = token_response.json()
+                    error_description = error_data.get('error_description', token_response.text)
+                except Exception:
+                    error_description = token_response.text
+                
+                return Response({
+                    'error': 'token_error',
+                    'error_description': f'获取访问令牌失败: {error_description}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            logger.error(f"处理 OAuth 回调时出错: {str(e)}", exc_info=True)
+            return Response({
+                'error': 'server_error',
+                'error_description': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @staticmethod
+    def get_user_info(access_token):
+        """获取用户信息"""
+        try:
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Accept': 'application/json'
+            }
+            response = requests.get(
+                'https://graph.microsoft.com/v1.0/me',
+                headers=headers
+            )
+            return response.json() if response.status_code == 200 else None
+        except Exception as e:
+            logger.error(f"获取用户信息时出错: {str(e)}")
+            return None
+
+class ClassifyEmailsView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def post(self, request):
+        """
+        对指定邮箱的邮件进行分类
+        
+        参数:
+        - email: 邮箱地址
+        - hours: 获取指定小时数内的邮件（可选，默认为2小时）
+        - method: 分类方法（可选，默认为decision_tree）
+        """
+        try:
+            logger.info("开始处理邮件分类请求")
+            
+            # 获取参数
+            email = request.data.get('email')
+            hours = request.data.get('hours', 2)  # 默认2小时
+            method = request.data.get('method', 'decision_tree')  # 默认使用决策树
+            
+            logger.info(f"分类参数: email={email}, hours={hours}, method={method}")
+            
+            if not email:
+                logger.error("缺少邮箱地址参数")
+                return Response(
+                    {'error': '邮箱地址参数是必需的'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 获取用户邮件配置
+            user_mail = CCUserMailInfo.objects.filter(email=email, is_active=True).first()
+            if not user_mail:
+                logger.error(f"未找到邮箱配置: {email}")
+                return Response(
+                    {'error': '未找到邮箱配置'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # 1. 获取邮件
+            logger.info(f"开始获取 {email} 的邮件")
+            mail_service = OutlookMailService(user_mail)
+            emails = mail_service.fetch_emails(hours=hours)
+            logger.info(f"成功获取 {len(emails)} 封邮件")
+            
+            if not emails:
+                return Response({
+                    'status': 'success',
+                    'message': '没有新邮件需要分类',
+                    'classified_count': 0
+                })
+
+            # 2. 对邮件进行分类
+            logger.info(f"开始使用 {method} 方法对邮件进行分类")
+            from core.services.email_classifier import EmailClassifier
+            results = EmailClassifier.classify_emails(emails, method=method)
+            
+            # 3. 统计分类结果
+            total_classified = 0
+            classification_stats = {}
+            
+            for classification, emails_data in results.items():
+                classification_stats[classification] = len(emails_data)
+                total_classified += len(emails_data)
+                
+                # 更新邮件分类
+                for data in emails_data:
+                    email_obj = data['email']
+                    email_obj.categories = classification
+                    email_obj.save(update_fields=['categories'])
+                    logger.debug(f"邮件 {email_obj.id} 分类为 '{classification}'")
+            
+            logger.info(f"分类完成，共分类 {total_classified} 封邮件")
+            
+            return Response({
+                'status': 'success',
+                'message': f'成功分类 {total_classified} 封邮件',
+                'classified_count': total_classified,
+                'classification_stats': classification_stats
+            })
+
+        except Exception as e:
+            logger.error(f"邮件分类过程中出错: {str(e)}", exc_info=True)
             return Response(
                 {'error': str(e)}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
