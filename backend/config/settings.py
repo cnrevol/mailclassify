@@ -285,5 +285,5 @@ OAUTH_SETTINGS = {
         'Mail.ReadWrite'
     ],
     'redirect_path': '/api/classifier/oauth/callback',
-    'frontend_redirect_url': 'http://localhost:3000/mail/config',
+    'frontend_redirect_url': 'http://localhost:3000',
 } 

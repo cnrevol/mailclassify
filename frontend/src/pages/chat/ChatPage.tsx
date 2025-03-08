@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout, Menu, Button, Input, Avatar, Dropdown, Space, Modal, Tooltip, Select, message } from 'antd';
 import {
   MenuFoldOutlined,
@@ -11,7 +11,7 @@ import {
   AppstoreOutlined,
   RobotOutlined
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import MailConfigPage from '../mail/MailConfigPage';
 import ReactMarkdown from 'react-markdown';
 
@@ -25,12 +25,24 @@ const ChatPage: React.FC = () => {
   const [messageInput, setMessageInput] = useState('');
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchValue, setSearchValue] = useState('');
-  const [selectedMenu, setSelectedMenu] = useState<string>('');
+  const [selectedMenu, setSelectedMenu] = useState('chat');
   const [selectedModel, setSelectedModel] = useState('azure-gpt4');
   const [messages, setMessages] = useState<Array<{role: string, content: string, type?: string}>>([]);
   const [loading, setLoading] = useState(false);
   const [hasMessages, setHasMessages] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    // 从 URL 参数中获取菜单项
+    const params = new URLSearchParams(location.search);
+    const menuParam = params.get('menu');
+    if (menuParam) {
+      setSelectedMenu(menuParam);
+      // 清除 URL 参数
+      navigate('/chat', { replace: true });
+    }
+  }, [location.search, navigate]);
 
   const handleLogout = () => {
     localStorage.clear();

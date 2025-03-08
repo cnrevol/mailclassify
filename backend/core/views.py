@@ -418,7 +418,10 @@ class OutlookOAuthView(APIView):
                     }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
                 
                 # 重定向到前端页面
-                redirect_url = settings.OAUTH_SETTINGS['frontend_redirect_url'] + "?auth_success=true"
+                redirect_url = settings.OAUTH_SETTINGS['frontend_redirect_url']
+                if not redirect_url.endswith('/'):
+                    redirect_url += '/'
+                redirect_url += "chat?menu=mail-config&auth_success=true"
                 logger.info(f"重定向到: {redirect_url}")
                 
                 return redirect(redirect_url)

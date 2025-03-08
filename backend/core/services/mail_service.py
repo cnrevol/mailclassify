@@ -89,26 +89,26 @@ class OutlookMailService:
         """
         try:
             # 构建查询参数
-            filter_params = []
+            params = {
+                '$select': 'id,subject,sender,receivedDateTime,body,categories,importance,hasAttachments',
+                '$orderby': 'receivedDateTime desc',
+                '$top': min(limit, 50) if limit else 50
+            }
+
+            # 如果指定了时间范围，添加过滤条件
             if hours:
-                time_filter = timezone.now() - timedelta(hours=hours)
-                filter_params.append(f"receivedDateTime ge {time_filter.isoformat()}Z")
+                # 使用 UTC 时间，并格式化为 ISO 8601 格式
+                time_threshold = (timezone.now() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+                params['$filter'] = f"receivedDateTime ge {time_threshold}"
 
             # 构建查询URL
             url = f"{self.GRAPH_API_BASE}/users/{self.user_mail.email}/messages"
-            params = {
-                '$select': 'id,subject,sender,receivedDateTime,body,categories,importance,hasAttachments',
-                '$orderby': 'receivedDateTime DESC',
-                '$top': limit if limit else 50,
-                '$expand': 'attachments'  # 添加附件展开
-            }
-            if filter_params:
-                params['$filter'] = ' and '.join(filter_params)
-
-            # 发送请求
+            
+            logger.debug(f"Fetching emails with params: {params}")
             response = requests.get(url, headers=self._get_headers(), params=params)
             response.raise_for_status()
             emails_data = response.json().get('value', [])
+            logger.info(f"Successfully fetched {len(emails_data)} emails")
 
             # 处理邮件数据
             processed_emails = []
@@ -120,11 +120,6 @@ class OutlookMailService:
                 ).first()
 
                 if existing_email:
-                    if not existing_email.is_read:
-                        # 标记为已读
-                        self._mark_as_read(email_data['id'])
-                        existing_email.is_read = True
-                        existing_email.save()
                     processed_emails.append(existing_email)
                     continue
 
@@ -132,24 +127,16 @@ class OutlookMailService:
                 email = CCEmail.objects.create(
                     user_mail=self.user_mail,
                     message_id=email_data['id'],
-                    subject=email_data['subject'],
-                    sender=email_data['sender']['emailAddress']['address'],
+                    subject=email_data.get('subject', ''),
+                    sender=email_data.get('sender', {}).get('emailAddress', {}).get('address', ''),
                     received_time=datetime.fromisoformat(email_data['receivedDateTime'].replace('Z', '+00:00')),
-                    content=email_data['body']['content'],
+                    content=email_data.get('body', {}).get('content', ''),
                     categories=','.join(email_data.get('categories', [])),
-                    importance=email_data['importance'],
-                    has_attachments=email_data['hasAttachments'],
+                    importance=email_data.get('importance', 'normal'),
+                    has_attachments=email_data.get('hasAttachments', False),
                     is_read=True
                 )
 
-                # 更新附件信息
-                if email_data['hasAttachments']:
-                    attachments = email_data.get('attachments', [])
-                    email.update_attachment_info(attachments)
-                    email.save()
-
-                # 标记为已读
-                self._mark_as_read(email_data['id'])
                 processed_emails.append(email)
 
             # 更新最后同步时间
@@ -158,8 +145,11 @@ class OutlookMailService:
 
             return processed_emails
 
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching emails: {str(e)}", exc_info=True)
+            raise
         except Exception as e:
-            logger.error(f"Error fetching emails: {str(e)}")
+            logger.error(f"Unexpected error while fetching emails: {str(e)}", exc_info=True)
             raise
 
     def _mark_as_read(self, message_id: str) -> None:
