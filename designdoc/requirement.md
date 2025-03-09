@@ -17,3 +17,5 @@ TODO
     1.已经分类处理邮件，RDB 保存。
     2. AI Agent smolagents  CodeAgent Text2SQL RDB查询
     3. 语义查询，邮件内容向量存储
+
+10. 服务发布 Azure

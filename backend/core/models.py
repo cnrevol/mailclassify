@@ -147,7 +147,15 @@ class CCEmail(CCBaseModel):
     classification_reason = models.TextField(_('分类理由'), blank=True, null=True,
                                            help_text=_('分类的详细理由或依据'))
     classification_rule = models.CharField(_('匹配规则'), max_length=255, blank=True, null=True,
-                                         help_text=_('匹配的规则名称，适用于决策树分类'))
+                                         help_text=_('匹配的规则名称'))
+    
+    # 处理状态标记
+    is_processed = models.BooleanField(_('是否已处理'), default=False, 
+                                     help_text=_('邮件是否已经被分类处理'))
+    is_forwarded = models.BooleanField(_('是否已转发'), default=False,
+                                     help_text=_('邮件是否已经被转发'))
+    processed_time = models.DateTimeField(_('处理时间'), null=True, blank=True,
+                                        help_text=_('邮件被处理的时间'))
 
     class Meta:
         db_table = 'cc_email'
@@ -236,3 +244,22 @@ class CCEmailForwardingLog(CCBaseModel):
 
     def __str__(self):
         return f"{self.title} - {self.classification} - {self.email_type}"
+
+class CCEmailMonitorStatus(models.Model):
+    """邮件监控状态"""
+    
+    email = models.CharField(max_length=255, unique=True, verbose_name="邮箱地址")
+    is_monitoring = models.BooleanField(default=False, verbose_name="是否正在监控")
+    last_check_time = models.DateTimeField(null=True, blank=True, verbose_name="上次检查时间")
+    last_found_emails = models.IntegerField(default=0, verbose_name="上次发现的新邮件数")
+    total_classified_emails = models.IntegerField(default=0, verbose_name="总分类邮件数")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+    
+    class Meta:
+        db_table = 'cc_email_monitor_status'
+        verbose_name = "邮件监控状态"
+        verbose_name_plural = "邮件监控状态"
+        
+    def __str__(self):
+        return f"{self.email} - {'监控中' if self.is_monitoring else '已停止'}"

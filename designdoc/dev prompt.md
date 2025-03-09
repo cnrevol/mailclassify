@@ -277,3 +277,13 @@ BERT_THRESHOLD = 0.8
 对 email_classifier.py 的 _step_classifier 中，fasttext 和bert模型的分类判定，
 我要通过外部配置，可以实现 1. 两种模型都做分类执行，对分类结果都做判定，同时大于阈值，才算分类成功。2.只执行其中一种模型。3，还是顺序执行，可以指定fasttext,bert的先后。
 请设计一个配置方法，并在 _step_classifier 中实现。
+
+
+
+前端 MailConfigPage.tsx 页面的handleClassify 方法，在点击按钮后被触发执行，调用后端 views.py ClassifyEmailsView 进行处理。
+现在的流程是，点击按钮后，触发一次，但是按钮上的文字显示 分类中，我要对邮箱监控，发现有新邮件后，就读取新邮件，进行分类处理。请帮我设计一下，如何进行监控邮件，
+是在前端不断提交请求，还是后端启动线程，怎样的解决方案比较好。要保证前端知道在监控中的状态，可以通过点击 分类中 按钮，停止监控。
+
+
+mail_service.py 的 fetch_emails 方法中，对已经读取分类过的邮件，可以进行识别吗？我要只读取没有处理过的邮件。
+需要在views.py 的 ClassifyEmailsView 中对转发过的邮件做标识处理吗？

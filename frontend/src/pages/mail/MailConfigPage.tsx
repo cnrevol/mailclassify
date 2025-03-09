@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Table, Button, Modal, Form, Input, Space, message, Switch, Tooltip } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SyncOutlined, KeyOutlined } from '@ant-design/icons';
 import axios from 'axios';
@@ -16,6 +16,18 @@ interface ClassificationStatus {
   [key: number]: boolean;
 }
 
+interface MonitoringStatus {
+  email: string;
+  is_monitoring: boolean;
+  last_check_time: string | null;
+  last_found_emails: number;
+  total_classified_emails: number;
+  updated_at: string | null;
+}
+
+// 默认分类方法
+const DEFAULT_CLASSIFICATION_METHOD = 'stepgo';
+
 const MailConfigPage: React.FC = () => {
   const [configs, setConfigs] = useState<MailConfig[]>([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -24,11 +36,16 @@ const MailConfigPage: React.FC = () => {
   const [classifying, setClassifying] = useState<ClassificationStatus>({});
   const [loadingStatus, setLoadingStatus] = useState<ClassificationStatus>({});
   const [authLoading, setAuthLoading] = useState<ClassificationStatus>({});
+  const [monitoringStatus, setMonitoringStatus] = useState<{[key: string]: MonitoringStatus}>({});
+  const [monitoringLoading, setMonitoringLoading] = useState<{[key: number]: boolean}>({});
   
   // 获取查询参数
   const location = useLocation();
   const queryParams = new URLSearchParams(location.search);
   const authSuccess = queryParams.get('auth_success');
+
+  // 添加定时器引用
+  const statusCheckTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     // 如果有授权成功的参数，显示成功消息
@@ -47,6 +64,11 @@ const MailConfigPage: React.FC = () => {
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
       });
       setConfigs(response.data);
+      
+      // 获取所有配置的监控状态
+      for (const config of response.data) {
+        await checkMonitoringStatus(config.email);
+      }
     } catch (error) {
       message.error('获取配置失败');
     }
@@ -55,6 +77,51 @@ const MailConfigPage: React.FC = () => {
   useEffect(() => {
     fetchConfigs();
   }, []);
+
+  // 在 useEffect 中添加状态检查定时器
+  useEffect(() => {
+    // 启动定时检查
+    statusCheckTimerRef.current = setInterval(() => {
+      checkAllMonitoringStatus();
+    }, 30000); // 每30秒检查一次
+    
+    // 组件卸载时清除定时器
+    return () => {
+      if (statusCheckTimerRef.current) {
+        clearInterval(statusCheckTimerRef.current);
+      }
+    };
+  }, []);
+  
+  // 检查所有邮箱的监控状态
+  const checkAllMonitoringStatus = async () => {
+    try {
+      // 只检查已加载的配置
+      for (const config of configs) {
+        await checkMonitoringStatus(config.email);
+      }
+    } catch (error) {
+      console.error('检查监控状态失败:', error);
+    }
+  };
+  
+  // 检查单个邮箱的监控状态
+  const checkMonitoringStatus = async (email: string) => {
+    try {
+      const response = await axios.get(`/api/mail/monitor/?email=${email}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+      });
+      
+      if (response.data.status === 'success') {
+        setMonitoringStatus(prev => ({
+          ...prev,
+          [email]: response.data.monitoring_status
+        }));
+      }
+    } catch (error) {
+      console.error(`检查邮箱 ${email} 监控状态失败:`, error);
+    }
+  };
 
   const handleAdd = () => {
     form.resetFields();
@@ -130,49 +197,73 @@ const MailConfigPage: React.FC = () => {
 
   const handleClassify = async (record: MailConfig) => {
     // 设置加载状态
-    setLoadingStatus(prev => ({ ...prev, [record.id]: true }));
+    setMonitoringLoading(prev => ({ ...prev, [record.id]: true }));
     
     try {
-      // 切换分类状态
-      const newStatus = !classifying[record.id];
-      setClassifying(prev => ({ ...prev, [record.id]: newStatus }));
+      // 获取当前监控状态
+      const currentStatus = monitoringStatus[record.email]?.is_monitoring || false;
       
-      if (newStatus) {
-        // 开始分类
-        const response = await axios.post('/api/mail/classify/', 
-          { email: record.email, hours: 2, method: 'stepgo' },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
-        );
+      // 切换监控状态
+      const action = currentStatus ? 'stop' : 'start';
+      
+      // 调用监控API
+      const response = await axios.post('/api/mail/monitor/', 
+        { email: record.email, action },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
+      );
+      
+      if (response.data.status === 'success') {
+        // 更新监控状态
+        setMonitoringStatus(prev => ({
+          ...prev,
+          [record.email]: response.data.monitoring_status
+        }));
         
-        // 显示分类结果
-        if (response.data.status === 'success') {
-          message.success(response.data.message);
-          
-          // 如果有分类统计信息，显示更详细的消息
-          if (response.data.classification_stats) {
-            const stats = response.data.classification_stats;
-            const statsMessage = Object.entries(stats)
-              .map(([category, count]) => `${category}: ${count}封`)
-              .join(', ');
-            
-            if (statsMessage) {
-              message.info(`分类详情: ${statsMessage}`);
-            }
-          }
-        } else {
-          message.warning('分类完成，但没有返回详细信息');
+        // 显示操作结果
+        message.success(response.data.message);
+        
+        // 如果是开始监控，立即执行一次分类
+        if (action === 'start') {
+          await runClassification(record.email);
         }
       } else {
-        // 用户手动关闭了分类开关
-        message.info('已停止分类');
+        message.warning(response.data.message || '操作失败');
+      }
+    } catch (error: any) {
+      message.error('操作失败: ' + (error.response?.data?.error || error.message));
+    } finally {
+      // 清除加载状态
+      setMonitoringLoading(prev => ({ ...prev, [record.id]: false }));
+    }
+  };
+
+  // 添加执行分类的方法
+  const runClassification = async (email: string) => {
+    try {
+      // 执行一次分类
+      const response = await axios.post('/api/mail/classify/', 
+        { email, hours: 2, method: DEFAULT_CLASSIFICATION_METHOD },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
+      );
+      
+      // 显示分类结果
+      if (response.data.status === 'success') {
+        message.success(response.data.message);
+        
+        // 如果有分类统计信息，显示更详细的消息
+        if (response.data.classification_stats) {
+          const stats = response.data.classification_stats;
+          const statsMessage = Object.entries(stats)
+            .map(([category, count]) => `${category}: ${count}封`)
+            .join(', ');
+          
+          if (statsMessage) {
+            message.info(`分类详情: ${statsMessage}`);
+          }
+        }
       }
     } catch (error: any) {
       message.error('分类失败: ' + (error.response?.data?.error || error.message));
-      // 发生错误时重置分类状态
-      setClassifying(prev => ({ ...prev, [record.id]: false }));
-    } finally {
-      // 清除加载状态
-      setLoadingStatus(prev => ({ ...prev, [record.id]: false }));
     }
   };
 
@@ -223,17 +314,22 @@ const MailConfigPage: React.FC = () => {
       ),
     },
     {
-      title: '邮件分类',
-      key: 'classify',
-      render: (_: any, record: MailConfig) => (
-        <Tooltip title={classifying[record.id] ? '点击停止分类' : '点击开始分类'}>
+      title: '操作',
+      key: 'action',
+      render: (_, record: MailConfig) => (
+        <Tooltip title="开始/停止邮件监控和分类">
           <Button
-            type={classifying[record.id] ? "primary" : "default"}
-            loading={loadingStatus[record.id]}
+            type={monitoringStatus[record.email]?.is_monitoring ? "primary" : "default"}
+            loading={monitoringLoading[record.id]}
             onClick={() => handleClassify(record)}
           >
-            {classifying[record.id] && <SyncOutlined spin />}
-            {classifying[record.id] ? '分类中' : '分类开始'}
+            {monitoringStatus[record.email]?.is_monitoring ? (
+              <>
+                <SyncOutlined spin /> 监控中
+                {monitoringStatus[record.email]?.last_found_emails > 0 && 
+                  ` (${monitoringStatus[record.email]?.total_classified_emails}封)`}
+              </>
+            ) : '开始监控'}
           </Button>
         </Tooltip>
       ),

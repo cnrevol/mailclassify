@@ -326,3 +326,7 @@ SINGLE_MODEL_CHOICE = 'bert'
 # 当 MODEL_EXECUTION_STRATEGY 为 'parallel' 时，是否要求两个模型都超过阈值
 # 如果为 False，则任一模型超过阈值即可
 PARALLEL_REQUIRE_BOTH = True
+
+# 默认邮件分类方法
+# 可选值: 'decision_tree', 'llm', 'bert', 'fasttext', 'sequence', 'stepgo'
+DEFAULT_EMAIL_CLASSIFICATION_METHOD = 'stepgo'

@@ -79,13 +79,14 @@ class OutlookMailService:
             'Content-Type': 'application/json'
         }
 
-    def fetch_emails(self, limit: Optional[int] = None, hours: Optional[int] = None) -> List[CCEmail]:
+    def fetch_emails(self, limit: Optional[int] = None, hours: Optional[int] = None, skip_processed: bool = True) -> List[CCEmail]:
         """
         获取收件箱邮件列表
         
         Args:
             limit: 获取的邮件数量
             hours: 获取指定小时数内的邮件
+            skip_processed: 是否跳过已处理的邮件
         """
         try:
             # 构建查询参数
@@ -100,67 +101,179 @@ class OutlookMailService:
                 # 使用 UTC 时间，并格式化为 ISO 8601 格式
                 time_threshold = (timezone.now() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
                 params['$filter'] = f"receivedDateTime ge {time_threshold}"
-
-            # 构建查询URL - 修改为只获取收件箱邮件
-            url = f"{self.GRAPH_API_BASE}/users/{self.user_mail.email}/mailFolders/inbox/messages"
+                
+            # 获取邮件列表 - 修改为只获取收件箱邮件
+            headers = self._get_headers()
             
-            logger.debug(f"获取收件箱邮件，参数: {params}")
-            response = requests.get(url, headers=self._get_headers(), params=params)
-            response.raise_for_status()
-            emails_data = response.json().get('value', [])
-            logger.info(f"成功获取 {len(emails_data)} 封收件箱邮件")
-
+            # 首先获取收件箱文件夹ID
+            inbox_response = requests.get(
+                f"{self.GRAPH_API_BASE}/me/mailFolders/inbox",
+                headers=headers
+            )
+            
+            if inbox_response.status_code != 200:
+                logger.error(f"获取收件箱信息失败: {inbox_response.status_code} {inbox_response.text}")
+                return []
+                
+            inbox_data = inbox_response.json()
+            inbox_id = inbox_data.get('id')
+            
+            if not inbox_id:
+                logger.error("无法获取收件箱ID")
+                return []
+                
+            # 使用收件箱ID获取邮件
+            response = requests.get(
+                f"{self.GRAPH_API_BASE}/me/mailFolders/{inbox_id}/messages",
+                headers=headers,
+                params=params
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"获取邮件失败: {response.status_code} {response.text}")
+                return []
+                
+            data = response.json()
+            messages = data.get('value', [])
+            logger.info(f"从收件箱获取了 {len(messages)} 封邮件")
+            
             # 处理邮件数据
-            processed_emails = []
-            for email_data in emails_data:
-                # 检查邮件是否已存在
-                existing_email = CCEmail.objects.filter(
-                    message_id=email_data['id'],
-                    user_mail=self.user_mail
-                ).first()
-
+            emails = []
+            processed_count = 0
+            
+            for msg in messages:
+                message_id = msg.get('id')
+                
+                # 检查邮件是否已存在于数据库中
+                existing_email = CCEmail.objects.filter(message_id=message_id).first()
+                
                 if existing_email:
-                    processed_emails.append(existing_email)
+                    # 如果邮件已存在且已处理，且需要跳过已处理邮件，则跳过
+                    if skip_processed and existing_email.is_processed:
+                        processed_count += 1
+                        continue
+                    
+                    # 如果邮件已存在但未处理，或不需要跳过已处理邮件，则使用现有记录
+                    emails.append(existing_email)
                     continue
-
-                # 创建新的邮件记录
-                email = CCEmail.objects.create(
+                
+                # 处理新邮件
+                subject = msg.get('subject', '(无主题)')
+                sender_info = msg.get('sender', {}).get('emailAddress', {})
+                sender = sender_info.get('address', '')
+                received_time = msg.get('receivedDateTime')
+                
+                # 转换时间格式
+                if received_time:
+                    received_time = datetime.fromisoformat(received_time.replace('Z', '+00:00'))
+                else:
+                    received_time = timezone.now()
+                
+                # 获取邮件正文
+                body = msg.get('body', {})
+                content_type = body.get('contentType', 'text')
+                content = body.get('content', '')
+                
+                # 获取邮件重要性
+                importance = msg.get('importance', 'normal')
+                
+                # 获取附件信息
+                has_attachments = msg.get('hasAttachments', False)
+                
+                # 创建邮件记录
+                email = CCEmail(
                     user_mail=self.user_mail,
-                    message_id=email_data['id'],
-                    subject=email_data.get('subject', ''),
-                    sender=email_data.get('sender', {}).get('emailAddress', {}).get('address', ''),
-                    received_time=datetime.fromisoformat(email_data['receivedDateTime'].replace('Z', '+00:00')),
-                    content=email_data.get('body', {}).get('content', ''),
-                    categories=','.join(email_data.get('categories', [])),
-                    importance=email_data.get('importance', 'normal'),
-                    has_attachments=email_data.get('hasAttachments', False),
-                    is_read=True
+                    message_id=message_id,
+                    subject=subject,
+                    sender=sender,
+                    received_time=received_time,
+                    content=content,
+                    importance=importance,
+                    has_attachments=has_attachments
                 )
-
-                processed_emails.append(email)
-
-            # 更新最后同步时间
-            self.user_mail.last_sync_time = timezone.now()
-            self.user_mail.save(update_fields=['last_sync_time'])
-
-            return processed_emails
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"获取邮件时出错: {str(e)}", exc_info=True)
-            raise
+                
+                # 保存邮件记录
+                email.save()
+                
+                # 如果有附件，获取附件信息
+                if has_attachments:
+                    self._fetch_attachments(email, message_id)
+                
+                emails.append(email)
+            
+            if processed_count > 0:
+                logger.info(f"跳过了 {processed_count} 封已处理的邮件")
+                
+            return emails
+            
         except Exception as e:
-            logger.error(f"获取邮件时出现意外错误: {str(e)}", exc_info=True)
-            raise
+            logger.error(f"获取邮件失败: {str(e)}", exc_info=True)
+            return []
 
     def _mark_as_read(self, message_id: str) -> None:
-        """标记邮件为已读"""
+        """将邮件标记为已读"""
         try:
-            url = f"{self.GRAPH_API_BASE}/users/{self.user_mail.email}/messages/{message_id}"
+            url = f"{self.GRAPH_API_BASE}/me/messages/{message_id}"
             data = {
                 "isRead": True
             }
             response = requests.patch(url, headers=self._get_headers(), json=data)
             response.raise_for_status()
+            logger.debug(f"邮件 {message_id} 已标记为已读")
         except Exception as e:
-            logger.error(f"Error marking email as read: {str(e)}")
-            raise 
+            logger.error(f"标记邮件为已读失败: {str(e)}")
+            
+    def _fetch_attachments(self, email: CCEmail, message_id: str) -> None:
+        """
+        获取邮件附件信息
+        
+        Args:
+            email: 邮件对象
+            message_id: 邮件ID
+        """
+        try:
+            # 获取附件列表
+            url = f"{self.GRAPH_API_BASE}/me/messages/{message_id}/attachments"
+            response = requests.get(url, headers=self._get_headers())
+            
+            if response.status_code != 200:
+                logger.error(f"获取附件失败: {response.status_code} {response.text}")
+                return
+                
+            data = response.json()
+            attachments = data.get('value', [])
+            
+            if not attachments:
+                logger.debug(f"邮件 {message_id} 没有附件")
+                return
+                
+            # 处理附件信息
+            attachment_count = len(attachments)
+            total_size = 0
+            attachments_info = []
+            
+            for attachment in attachments:
+                attachment_id = attachment.get('id')
+                name = attachment.get('name', '未命名附件')
+                content_type = attachment.get('contentType', 'application/octet-stream')
+                size = attachment.get('size', 0)
+                
+                total_size += size
+                
+                attachments_info.append({
+                    'id': attachment_id,
+                    'name': name,
+                    'content_type': content_type,
+                    'size': size
+                })
+            
+            # 更新邮件附件信息
+            email.attachment_count = attachment_count
+            email.total_attachment_size = total_size
+            email.attachments_info = attachments_info
+            email.save(update_fields=['attachment_count', 'total_attachment_size', 'attachments_info'])
+            
+            logger.debug(f"邮件 {message_id} 的附件信息已更新，共 {attachment_count} 个附件")
+            
+        except Exception as e:
+            logger.error(f"获取附件信息失败: {str(e)}", exc_info=True) 

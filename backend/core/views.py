@@ -473,8 +473,12 @@ class ClassifyEmailsView(APIView):
             # 获取请求参数
             email = request.data.get('email')
             hours = request.data.get('hours', 2)  # 默认获取2小时内的邮件
-            method = request.data.get('method', 'stepgo')  # 默认使用 stepgo 分类
+            
+            # 从 settings.py 获取默认分类方法，而不是从前端参数获取
+            method = request.data.get('method', settings.DEFAULT_EMAIL_CLASSIFICATION_METHOD)
+            
             enable_forwarding = request.data.get('enable_forwarding', True)  # 默认启用转发
+            process_all = request.data.get('process_all', False)  # 是否处理所有邮件，包括已处理的
             
             if not email:
                 return Response(
@@ -482,7 +486,7 @@ class ClassifyEmailsView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
                 
-            logger.info(f"开始处理邮件分类请求，邮箱: {email}, 方法: {method}, 时间范围: {hours}小时, 启用转发: {enable_forwarding}")
+            logger.info(f"开始处理邮件分类请求，邮箱: {email}, 方法: {method}, 时间范围: {hours}小时, 启用转发: {enable_forwarding}, 处理所有邮件: {process_all}")
             
             # 获取用户邮件配置
             user_mail = CCUserMailInfo.objects.filter(email=email, is_active=True).first()
@@ -496,7 +500,7 @@ class ClassifyEmailsView(APIView):
             # 1. 从 Outlook 获取邮件
             logger.info(f"开始从 Outlook 获取 {email} 的邮件")
             mail_service = OutlookMailService(user_mail)
-            emails = mail_service.fetch_emails(hours=hours)
+            emails = mail_service.fetch_emails(hours=hours, skip_processed=not process_all)
             logger.info(f"成功获取 {len(emails)} 封邮件")
             
             if not emails:
@@ -515,6 +519,7 @@ class ClassifyEmailsView(APIView):
             # 3. 统计分类结果
             total_classified = 0
             classification_stats = {}
+            now = timezone.now()
             
             for classification, emails_data in results.items():
                 classification_stats[classification] = len(emails_data)
@@ -542,13 +547,19 @@ class ClassifyEmailsView(APIView):
                         if 'rule_name' in data:
                             email_obj.classification_rule = data['rule_name']
                         
+                        # 标记为已处理
+                        email_obj.is_processed = True
+                        email_obj.processed_time = now
+                        
                         # 更新字段列表
                         update_fields = [
                             'categories', 
                             'classification_method', 
                             'classification_confidence', 
                             'classification_reason', 
-                            'classification_rule'
+                            'classification_rule',
+                            'is_processed',
+                            'processed_time'
                         ]
                         
                         email_obj.save(update_fields=update_fields)
@@ -573,6 +584,16 @@ class ClassifyEmailsView(APIView):
                     classification_results=results,
                     graph_service=graph_service
                 )
+                
+                # 标记已转发的邮件
+                for result in forwarding_results:
+                    if 'message_id' in result:
+                        message_id = result['message_id']
+                        email_obj = CCEmail.objects.filter(message_id=message_id).first()
+                        if email_obj:
+                            email_obj.is_forwarded = True
+                            email_obj.save(update_fields=['is_forwarded'])
+                            logger.debug(f"邮件 '{email_obj.subject[:30]}...' 已标记为已转发")
                 
                 logger.info(f"邮件转发完成，共转发 {len(forwarding_results)} 封邮件")
             
@@ -622,3 +643,86 @@ class ChatView(APIView):
             status=status.HTTP_200_OK if formatted_response['success'] 
             else status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+class EmailMonitorView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    
+    def post(self, request):
+        """
+        开始或停止邮件监控
+        """
+        try:
+            # 获取请求参数
+            email = request.data.get('email')
+            action = request.data.get('action')  # 'start' 或 'stop'
+            
+            if not email:
+                return Response(
+                    {'error': 'Email is required'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            if action not in ['start', 'stop']:
+                return Response(
+                    {'error': 'Action must be either "start" or "stop"'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # 导入监控服务
+            from core.services.email_monitor import EmailMonitorService
+            
+            # 执行操作
+            if action == 'start':
+                success = EmailMonitorService.start_monitoring(email)
+                message = '已开始监控邮箱' if success else '开始监控邮箱失败'
+            else:  # action == 'stop'
+                success = EmailMonitorService.stop_monitoring(email)
+                message = '已停止监控邮箱' if success else '停止监控邮箱失败'
+            
+            # 获取最新状态
+            status_info = EmailMonitorService.get_monitoring_status(email)
+            
+            return Response({
+                'status': 'success' if success else 'error',
+                'message': message,
+                'monitoring_status': status_info
+            })
+            
+        except Exception as e:
+            logger.error(f"邮件监控操作失败: {str(e)}", exc_info=True)
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def get(self, request):
+        """
+        获取邮件监控状态
+        """
+        try:
+            # 获取请求参数
+            email = request.query_params.get('email')
+            
+            if not email:
+                return Response(
+                    {'error': 'Email is required'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # 导入监控服务
+            from core.services.email_monitor import EmailMonitorService
+            
+            # 获取监控状态
+            status_info = EmailMonitorService.get_monitoring_status(email)
+            
+            return Response({
+                'status': 'success',
+                'monitoring_status': status_info
+            })
+            
+        except Exception as e:
+            logger.error(f"获取邮件监控状态失败: {str(e)}", exc_info=True)
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
