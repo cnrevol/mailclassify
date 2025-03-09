@@ -81,7 +81,7 @@ class OutlookMailService:
 
     def fetch_emails(self, limit: Optional[int] = None, hours: Optional[int] = None) -> List[CCEmail]:
         """
-        获取邮件列表
+        获取收件箱邮件列表
         
         Args:
             limit: 获取的邮件数量
@@ -101,14 +101,14 @@ class OutlookMailService:
                 time_threshold = (timezone.now() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
                 params['$filter'] = f"receivedDateTime ge {time_threshold}"
 
-            # 构建查询URL
-            url = f"{self.GRAPH_API_BASE}/users/{self.user_mail.email}/messages"
+            # 构建查询URL - 修改为只获取收件箱邮件
+            url = f"{self.GRAPH_API_BASE}/users/{self.user_mail.email}/mailFolders/inbox/messages"
             
-            logger.debug(f"Fetching emails with params: {params}")
+            logger.debug(f"获取收件箱邮件，参数: {params}")
             response = requests.get(url, headers=self._get_headers(), params=params)
             response.raise_for_status()
             emails_data = response.json().get('value', [])
-            logger.info(f"Successfully fetched {len(emails_data)} emails")
+            logger.info(f"成功获取 {len(emails_data)} 封收件箱邮件")
 
             # 处理邮件数据
             processed_emails = []
@@ -146,10 +146,10 @@ class OutlookMailService:
             return processed_emails
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching emails: {str(e)}", exc_info=True)
+            logger.error(f"获取邮件时出错: {str(e)}", exc_info=True)
             raise
         except Exception as e:
-            logger.error(f"Unexpected error while fetching emails: {str(e)}", exc_info=True)
+            logger.error(f"获取邮件时出现意外错误: {str(e)}", exc_info=True)
             raise
 
     def _mark_as_read(self, message_id: str) -> None:
