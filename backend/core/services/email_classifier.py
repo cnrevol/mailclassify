@@ -59,8 +59,10 @@ class EmailClassifier:
                     else:
                         logger.info(f"序列分类：邮件已通过决策树成功分类为 '{classification_result['classification']}'")
                 elif method == "stepgo":
-                    # 逐步尝试不同的分类器，直到获得非 "other" 的结果
+                    # 逐步尝试不同的分类器，根据置信度阈值判断是否继续
+                    logger.info(f"开始对邮件 '{email.subject[:50]}...' 进行逐步分类 (stepgo)")
                     classification_result = EmailClassifier._step_classifier(email)
+                    logger.info(f"逐步分类完成，结果: {classification_result['classification']}，置信度: {classification_result.get('confidence', 'N/A')}")
                 else:
                     classification_result = EmailClassifier._classify_by_ai_agent(email, method)
                 
@@ -130,7 +132,8 @@ class EmailClassifier:
                     return {
                         'classification': rule.classification,
                         'rule_name': rule.name,
-                        'explanation': f"Matched rule: {rule.name}"
+                        'explanation': f"匹配规则: {rule.name}，规则描述: {rule.description}",
+                        'confidence': 1.0  # 决策树匹配是确定性的，置信度为 1.0
                     }
 
             # 如果没有匹配的规则，归类为未分类
@@ -138,7 +141,8 @@ class EmailClassifier:
             return {
                 'classification': 'unclassified',
                 'rule_name': None,
-                'explanation': "No matching rules found"
+                'explanation': "未匹配任何规则",
+                'confidence': 0.0  # 未匹配任何规则，置信度为 0
             }
 
         except Exception as e:
@@ -147,42 +151,41 @@ class EmailClassifier:
 
     @staticmethod
     def _classify_by_ai_agent(email: CCEmail, method: str) -> Dict[str, Any]:
-        """
-        使用AI代理对单个邮件进行分类
-        
-        Args:
-            email: 要分类的邮件
-            method: 分类方法 ('llm', 'bert', 'fasttext')
-            
-        Returns:
-            分类结果字典
-        """
+        """使用 AI 代理对单个邮件进行分类"""
         try:
-            # 获取可用的分类类别
-            categories = list(CCEmailClassifyRule.objects.values_list(
-                'classification', flat=True).distinct())
-            if not categories:
-                logger.error("没有找到可用的分类类别")
-                return {
-                    'classification': 'unclassified',
-                    'rule_name': f"{method.upper()} Classification",
-                    'explanation': "No classification categories available"
-                }
-
-            logger.info(f"使用 {method} 方法进行分类，可用类别: {categories}")
-
-            # 使用分类器工厂进行分类
+            # 获取分类器工厂
             factory = EmailClassifier.get_factory()
-            result = factory.classify_email(email, method, categories)
             
+            # 获取可用的分类
+            categories = [rule.classification for rule in CCEmailClassifyRule.objects.filter(is_active=True)]
+            if not categories:
+                logger.warning("没有可用的分类类别，使用默认类别")
+                categories = ["purchase", "techsupport", "festival", "other"]
+            
+            # 创建分类代理
+            agent = EmailClassificationAgent(categories=categories)
+            
+            # 进行分类
+            logger.info(f"使用 {method} 方法对邮件 '{email.subject[:50]}...' 进行分类")
+            result = agent.classify_email(email, method=method)
+            
+            # 确保结果包含置信度和理由
+            if 'confidence' not in result:
+                result['confidence'] = 0.8  # 默认置信度
+            
+            if 'explanation' not in result:
+                result['explanation'] = f"使用 {method} 方法分类"
+                
+            logger.info(f"AI 代理将邮件 '{email.subject[:50]}...' 分类为 '{result['classification']}'，置信度: {result.get('confidence', 'N/A')}")
             return result
-
+            
         except Exception as e:
             logger.error(f"AI 代理分类过程中出错: {str(e)}", exc_info=True)
             return {
-                'classification': 'unclassified',
-                'rule_name': f"{method.upper()} Classification",
-                'explanation': f"Error during classification: {str(e)}"
+                'classification': 'error',
+                'rule_name': None,
+                'explanation': f"分类错误: {str(e)}",
+                'confidence': 0.0
             }
 
     @staticmethod
@@ -307,7 +310,7 @@ class EmailClassifier:
     @staticmethod
     def _step_classifier(email: CCEmail) -> Dict[str, Any]:
         """
-        逐步分类器，按顺序尝试不同的分类方法，直到获得非 "other" 的结果
+        逐步尝试不同的分类器，直到获得可信的分类结果
         
         Args:
             email: 要分类的邮件
@@ -315,56 +318,70 @@ class EmailClassifier:
         Returns:
             分类结果字典
         """
-        logger.info(f"开始对邮件 '{email.subject[:50]}...' 进行逐步分类")
-        
-        # 获取可用的分类类别
-        categories = list(CCEmailClassifyRule.objects.values_list(
-            'classification', flat=True).distinct())
-        if not categories:
-            logger.error("没有找到可用的分类类别")
-            return {
-                'classification': 'unclassified',
-                'rule_name': "Step Classification",
-                'explanation': "No classification categories available"
-            }
+        try:
+            # 1. 首先尝试决策树分类
+            logger.info(f"步进分类：第一步 - 对邮件 '{email.subject[:50]}...' 使用决策树进行分类")
+            result = EmailClassifier._classify_by_decision_tree(email)
             
-        # 获取分类器工厂
-        factory = EmailClassifier.get_factory()
-        
-        # 步骤 1: 使用决策树分类
-        logger.info("步骤 1: 使用决策树分类")
-        result = EmailClassifier._classify_by_decision_tree(email)
-        classification = result.get('classification', 'unclassified')
-        
-        # 如果结果不是 'other' 或 'unclassified'，直接返回
-        if classification not in ['other', 'unclassified']:
-            logger.info(f"决策树分类成功: {classification}")
-            return result
-        
-        # 步骤 2: 使用 FastText 分类
-        logger.info("步骤 2: 使用 FastText 分类")
-        result = factory.classify_email(email, 'fasttext', categories)
-        classification = result.get('classification', 'other')
-        
-        # 如果结果不是 'other'，直接返回
-        if classification != 'other':
-            logger.info(f"FastText 分类成功: {classification}")
-            return result
-        
-        # 步骤 3: 使用 BERT 分类
-        logger.info("步骤 3: 使用 BERT 分类")
-        result = factory.classify_email(email, 'bert', categories)
-        classification = result.get('classification', 'other')
-        
-        # 如果结果不是 'other'，直接返回
-        if classification != 'other':
-            logger.info(f"BERT 分类成功: {classification}")
-            return result
-        
-        # 步骤 4: 使用 LLM 分类（最终尝试）
-        logger.info("步骤 4: 使用 LLM 分类")
-        result = factory.classify_email(email, 'llm', categories)
-        classification = result.get('classification', 'other')
-        logger.info(f"LLM 分类结果: {classification}")
-        
-        return result 
+            # 如果决策树分类成功（不是 unclassified），直接返回结果
+            if result['classification'] != 'unclassified':
+                logger.info(f"步进分类：邮件通过决策树成功分类为 '{result['classification']}'")
+                return result
+            
+            # 2. 尝试 FastText 分类
+            logger.info(f"步进分类：第二步 - 对邮件 '{email.subject[:50]}...' 使用 FastText 进行分类")
+            result = EmailClassifier._classify_by_ai_agent(email, 'fasttext')
+            
+            # 检查 FastText 分类结果的置信度是否高于阈值
+            confidence = result.get('confidence', 0)
+            if (result['classification'] != 'unclassified' and 
+                result['classification'] != 'error' and 
+                confidence >= settings.FASTTEXT_THRESHOLD):
+                logger.info(f"步进分类：邮件通过 FastText 成功分类为 '{result['classification']}'，置信度: {confidence}")
+                return result
+            else:
+                logger.info(f"步进分类：FastText 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.FASTTEXT_THRESHOLD}，继续下一步")
+            
+            # 3. 尝试 BERT 分类
+            logger.info(f"步进分类：第三步 - 对邮件 '{email.subject[:50]}...' 使用 BERT 进行分类")
+            result = EmailClassifier._classify_by_ai_agent(email, 'bert')
+            
+            # 检查 BERT 分类结果的置信度是否高于阈值
+            confidence = result.get('confidence', 0)
+            if (result['classification'] != 'unclassified' and 
+                result['classification'] != 'error' and 
+                confidence >= settings.BERT_THRESHOLD):
+                logger.info(f"步进分类：邮件通过 BERT 成功分类为 '{result['classification']}'，置信度: {confidence}")
+                return result
+            else:
+                logger.info(f"步进分类：BERT 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.BERT_THRESHOLD}，继续下一步")
+            
+            # 4. 最后尝试 LLM 分类
+            logger.info(f"步进分类：第四步 - 对邮件 '{email.subject[:50]}...' 使用 LLM 进行分类")
+            result = EmailClassifier._classify_by_ai_agent(email, 'llm')
+            
+            # 检查 LLM 分类结果的置信度是否高于阈值
+            confidence = result.get('confidence', 0)
+            if (result['classification'] != 'unclassified' and 
+                result['classification'] != 'error' and 
+                confidence >= settings.LLM_THRESHOLD):
+                logger.info(f"步进分类：邮件通过 LLM 成功分类为 '{result['classification']}'，置信度: {confidence}")
+                return result
+            else:
+                logger.info(f"步进分类：LLM 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.LLM_THRESHOLD}，分类失败")
+                # 如果所有方法都未能提供高置信度的分类，返回 unclassified
+                return {
+                    'classification': 'unclassified',
+                    'rule_name': 'Step Classification',
+                    'explanation': "所有分类方法都未能提供高置信度的分类结果",
+                    'confidence': 0.0
+                }
+            
+        except Exception as e:
+            logger.error(f"步进分类过程中出错: {str(e)}", exc_info=True)
+            return {
+                'classification': 'error',
+                'rule_name': 'Step Classification',
+                'explanation': f"分类错误: {str(e)}",
+                'confidence': 0.0
+            } 

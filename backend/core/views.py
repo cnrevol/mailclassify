@@ -526,8 +526,33 @@ class ClassifyEmailsView(APIView):
                     if 'email' in data:
                         email_obj = data['email']
                         email_obj.categories = classification
-                        email_obj.save(update_fields=['categories'])
-                        logger.debug(f"邮件 '{email_obj.subject[:30]}...' 分类为 '{classification}'")
+                        
+                        # 保存分类详情
+                        email_obj.classification_method = method
+                        
+                        # 保存置信度（如果有）
+                        if 'confidence' in data:
+                            email_obj.classification_confidence = data['confidence']
+                        
+                        # 保存分类理由
+                        if 'explanation' in data:
+                            email_obj.classification_reason = data['explanation']
+                        
+                        # 保存匹配规则（如果有）
+                        if 'rule_name' in data:
+                            email_obj.classification_rule = data['rule_name']
+                        
+                        # 更新字段列表
+                        update_fields = [
+                            'categories', 
+                            'classification_method', 
+                            'classification_confidence', 
+                            'classification_reason', 
+                            'classification_rule'
+                        ]
+                        
+                        email_obj.save(update_fields=update_fields)
+                        logger.debug(f"邮件 '{email_obj.subject[:30]}...' 分类为 '{classification}'，方法: {method}")
                     else:
                         logger.warning(f"邮件数据中缺少 'email' 字段: {data}")
             

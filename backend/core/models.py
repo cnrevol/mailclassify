@@ -138,6 +138,16 @@ class CCEmail(CCBaseModel):
     attachment_count = models.IntegerField(_('附件数量'), default=0)
     total_attachment_size = models.BigIntegerField(_('附件总大小(字节)'), default=0)
     attachments_info = models.JSONField(_('附件详细信息'), default=list, blank=True)
+    
+    # 新增字段
+    classification_method = models.CharField(_('分类方法'), max_length=50, blank=True, null=True, 
+                                           help_text=_('使用的分类方法，如 decision_tree, llm, bert, fasttext, sequence, stepgo'))
+    classification_confidence = models.FloatField(_('分类置信度'), blank=True, null=True,
+                                                help_text=_('分类的置信度，范围 0-1'))
+    classification_reason = models.TextField(_('分类理由'), blank=True, null=True,
+                                           help_text=_('分类的详细理由或依据'))
+    classification_rule = models.CharField(_('匹配规则'), max_length=255, blank=True, null=True,
+                                         help_text=_('匹配的规则名称，适用于决策树分类'))
 
     class Meta:
         db_table = 'cc_email'

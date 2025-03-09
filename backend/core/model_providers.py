@@ -100,9 +100,10 @@ class BertProvider(LLMProvider):
                 # 进行预测
                 with torch.no_grad():
                     outputs = self.model(inputs['input_ids'], inputs['attention_mask'])
-                    predictions = torch.softmax(outputs.logits, dim=1)
-                    predicted_class_idx = torch.argmax(predictions).item()
-                    confidence = predictions[0][predicted_class_idx].item()
+                    # BertClassifier 直接返回线性层输出，不是包含 logits 属性的对象
+                    predictions = torch.softmax(outputs, dim=1)
+                    predicted_class_idx = torch.argmax(predictions, dim=1).item()
+                    confidence = predictions[0, predicted_class_idx].item()
                 
                 # 获取分类标签 - 使用 settings 中定义的映射
                 predicted_class_str = str(predicted_class_idx)
@@ -234,7 +235,7 @@ class FastTextProvider(LLMProvider):
                     predicted_class = "unknown"
                     confidence = 0.0
             except Exception as e:
-                logger.error(f"Error during prediction: {str(e)}")
+                logger.error(f"Error during FastText prediction: {str(e)}")
                 predicted_class = "unknown"
                 confidence = 0.0
             

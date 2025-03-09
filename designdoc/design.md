@@ -142,8 +142,8 @@ create table asset.cc_forwardingrule (
   , primary key (id)
 );
 
-做邮件转发，
-这个邮件分类与转发email_type 的对应关系定义在setting文件。
+做邮件转发处理，
+以下这个 邮件分类 与 转发email_type 的对应关系定义在setting文件。
 EMAIL_TYPE_MAPPING = {
     'purchase': ['sales_inquiry', 'general_inquiry'],
     'techsupport': ['support_request', 'technical_issue', 'urgent_issue'],
@@ -265,3 +265,11 @@ class EmailForwardingService:
                 'success': False,
                 'error': f'Error processing forwarding request: {str(e)}'
             }
+
+
+
+在 cc_email 表中添加字段，保存分类信息，包括使用的分类方式，置信度，理由。在分类处理结束时，保存这些内容。
+
+email_classifier.py classify_emails 处理中 ,fasttext,bert 模型的判断结果的置信度 confidence 做判定，当高于设定的阈值时，认为分类成功，否则，进入下一级处理。
+阈值在setting.py中配置。分别是，FASTTEXT_THRESHOLD = 0.95
+BERT_THRESHOLD = 0.8

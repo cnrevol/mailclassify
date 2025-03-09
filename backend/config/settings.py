@@ -301,6 +301,9 @@ BERT_LABEL_MAP = {
     3: "festival"
 }
 
+FASTTEXT_THRESHOLD = 0.95
+BERT_THRESHOLD = 0.9
+LLM_THRESHOLD = 0.95
 
 EMAIL_TYPE_MAPPING = {
     'purchase': ['sales_inquiry', 'general_inquiry'],

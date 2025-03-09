@@ -89,8 +89,33 @@ class Command(BaseCommand):
                     # 更新邮件分类
                     try:
                         email.categories = classification
-                        email.save(update_fields=['categories'])
-                        logger.debug(f"Successfully updated email {email.id} category to '{classification}'")
+                        
+                        # 保存分类详情
+                        email.classification_method = options['method']
+                        
+                        # 保存置信度（如果有）
+                        if 'confidence' in data:
+                            email.classification_confidence = data['confidence']
+                        
+                        # 保存分类理由
+                        if 'explanation' in data:
+                            email.classification_reason = data['explanation']
+                        
+                        # 保存匹配规则（如果有）
+                        if 'rule_name' in data:
+                            email.classification_rule = data['rule_name']
+                        
+                        # 更新字段列表
+                        update_fields = [
+                            'categories', 
+                            'classification_method', 
+                            'classification_confidence', 
+                            'classification_reason', 
+                            'classification_rule'
+                        ]
+                        
+                        email.save(update_fields=update_fields)
+                        logger.debug(f"Successfully updated email {email.id} category to '{classification}' with method '{options['method']}'")
                     except Exception as e:
                         logger.error(f"Failed to update email {email.id} category: {str(e)}")
                         continue

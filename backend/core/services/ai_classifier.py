@@ -408,10 +408,12 @@ class ClassifierFactory:
             
             # 获取分类结果
             classification = result.get('classification', 'unclassified')
-            logger.info(f"邮件 '{email.subject[:50]}...' 被 {method} 分类为 '{classification}'")
+            confidence = result.get('confidence', 0.0)  # 获取置信度，如果没有则默认为0
+            logger.info(f"邮件 '{email.subject[:50]}...' 被 {method} 分类为 '{classification}'，置信度: {confidence}")
             
             return {
                 'classification': classification,
+                'confidence': confidence,  # 添加置信度到返回值
                 'rule_name': f"{method.upper()} Classification",
                 'explanation': result.get('explanation', 'No explanation provided')
             }
@@ -420,6 +422,7 @@ class ClassifierFactory:
             logger.error(f"{method} 分类过程中出错: {str(e)}", exc_info=True)
             return {
                 'classification': 'unclassified',
+                'confidence': 0.0,  # 错误情况下置信度为0
                 'rule_name': f"{method.upper()} Classification",
                 'explanation': f"Error during classification: {str(e)}"
             }
@@ -446,4 +449,21 @@ class EmailClassificationAgent:
         Returns:
             Classification result dictionary
         """
-        return self.factory.classify_email(email, method, self.categories) 
+        result = self.factory.classify_email(email, method, self.categories)
+        
+        # 处理置信度
+        if 'confidence' not in result and 'score' in result:
+            # 如果模型返回了 'score' 而不是 'confidence'，使用 score 作为置信度
+            result['confidence'] = result['score']
+            logger.debug(f"使用模型返回的 'score' ({result['score']}) 作为置信度")
+        elif 'confidence' not in result:
+            # 如果模型没有返回置信度，设置为 0，表示无法确定置信度
+            # 这样在后续的阈值判断中，会被视为低置信度结果
+            result['confidence'] = 0.0
+            logger.warning(f"{method} 模型未返回置信度，设置为 0.0")
+        
+        # 确保结果包含解释
+        if 'explanation' not in result:
+            result['explanation'] = f"使用 {method} 方法分类为 {result.get('classification', 'unknown')}"
+            
+        return result 

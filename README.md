@@ -19,6 +19,6 @@ python manage.py migrate
 
 python manage.py migrate core 0005_ccemailforwardinglog_ccforwardingrule_and_more --fake
 
-
+python manage.py migrate core 0006_ccemail_classification_confidence_and_more --fake
    python manage.py migrate --fake-initial
       python manage.py sqlmigrate core 0005_ccemailforwardinglog_ccforwardingrule_and_more
