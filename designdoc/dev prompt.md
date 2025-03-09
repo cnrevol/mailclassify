@@ -273,3 +273,7 @@ class EmailForwardingService:
 email_classifier.py classify_emails 处理中 ,fasttext,bert 模型的判断结果的置信度 confidence 做判定，当高于设定的阈值时，认为分类成功，否则，进入下一级处理。
 阈值在setting.py中配置。分别是，FASTTEXT_THRESHOLD = 0.95
 BERT_THRESHOLD = 0.8
+
+对 email_classifier.py 的 _step_classifier 中，fasttext 和bert模型的分类判定，
+我要通过外部配置，可以实现 1. 两种模型都做分类执行，对分类结果都做判定，同时大于阈值，才算分类成功。2.只执行其中一种模型。3，还是顺序执行，可以指定fasttext,bert的先后。
+请设计一个配置方法，并在 _step_classifier 中实现。

@@ -328,8 +328,198 @@ class EmailClassifier:
                 logger.info(f"步进分类：邮件通过决策树成功分类为 '{result['classification']}'")
                 return result
             
-            # 2. 尝试 FastText 分类
-            logger.info(f"步进分类：第二步 - 对邮件 '{email.subject[:50]}...' 使用 FastText 进行分类")
+            # 获取模型执行策略
+            strategy = getattr(settings, 'MODEL_EXECUTION_STRATEGY', 'sequential')
+            logger.info(f"使用模型执行策略: {strategy}")
+            
+            # 2. 根据策略执行模型分类
+            if strategy == 'sequential':
+                # 顺序执行模式
+                return EmailClassifier._sequential_model_classification(email)
+            elif strategy == 'parallel':
+                # 并行执行模式
+                return EmailClassifier._parallel_model_classification(email)
+            elif strategy == 'single':
+                # 单模型执行模式
+                return EmailClassifier._single_model_classification(email)
+            else:
+                # 默认使用顺序执行
+                logger.warning(f"未知的模型执行策略: {strategy}，使用默认的顺序执行模式")
+                return EmailClassifier._sequential_model_classification(email)
+            
+        except Exception as e:
+            logger.error(f"步进分类过程中出错: {str(e)}", exc_info=True)
+            return {
+                'classification': 'error',
+                'rule_name': 'Step Classification',
+                'explanation': f"分类错误: {str(e)}",
+                'confidence': 0.0
+            }
+    
+    @staticmethod
+    def _sequential_model_classification(email: CCEmail) -> Dict[str, Any]:
+        """
+        按顺序执行模型分类
+        
+        Args:
+            email: 要分类的邮件
+            
+        Returns:
+            分类结果字典
+        """
+        # 获取模型执行顺序
+        model_order = getattr(settings, 'MODEL_EXECUTION_ORDER', ['fasttext', 'bert'])
+        logger.info(f"顺序执行模型，顺序为: {model_order}")
+        
+        # 按顺序执行模型
+        for model in model_order:
+            if model == 'fasttext':
+                # 尝试 FastText 分类
+                logger.info(f"步进分类：使用 FastText 进行分类 - 邮件 '{email.subject[:50]}...'")
+                result = EmailClassifier._classify_by_ai_agent(email, 'fasttext')
+                
+                # 检查 FastText 分类结果的置信度是否高于阈值
+                confidence = result.get('confidence', 0)
+                if (result['classification'] != 'unclassified' and 
+                    result['classification'] != 'error' and 
+                    confidence >= settings.FASTTEXT_THRESHOLD):
+                    logger.info(f"步进分类：邮件通过 FastText 成功分类为 '{result['classification']}'，置信度: {confidence}")
+                    return result
+                else:
+                    logger.info(f"步进分类：FastText 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.FASTTEXT_THRESHOLD}，继续下一步")
+            
+            elif model == 'bert':
+                # 尝试 BERT 分类
+                logger.info(f"步进分类：使用 BERT 进行分类 - 邮件 '{email.subject[:50]}...'")
+                result = EmailClassifier._classify_by_ai_agent(email, 'bert')
+                
+                # 检查 BERT 分类结果的置信度是否高于阈值
+                confidence = result.get('confidence', 0)
+                if (result['classification'] != 'unclassified' and 
+                    result['classification'] != 'error' and 
+                    confidence >= settings.BERT_THRESHOLD):
+                    logger.info(f"步进分类：邮件通过 BERT 成功分类为 '{result['classification']}'，置信度: {confidence}")
+                    return result
+                else:
+                    logger.info(f"步进分类：BERT 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.BERT_THRESHOLD}，继续下一步")
+        
+        # 尝试 LLM 分类（作为最后的备选）
+        logger.info(f"步进分类：使用 LLM 进行分类 - 邮件 '{email.subject[:50]}...'")
+        result = EmailClassifier._classify_by_ai_agent(email, 'llm')
+        
+        # 检查 LLM 分类结果的置信度是否高于阈值
+        confidence = result.get('confidence', 0)
+        if (result['classification'] != 'unclassified' and 
+            result['classification'] != 'error' and 
+            confidence >= settings.LLM_THRESHOLD):
+            logger.info(f"步进分类：邮件通过 LLM 成功分类为 '{result['classification']}'，置信度: {confidence}")
+            return result
+        else:
+            logger.info(f"步进分类：LLM 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.LLM_THRESHOLD}，分类失败")
+            # 如果所有方法都未能提供高置信度的分类，返回 unclassified
+            return {
+                'classification': 'unclassified',
+                'rule_name': 'Step Classification',
+                'explanation': "所有分类方法都未能提供高置信度的分类结果",
+                'confidence': 0.0
+            }
+    
+    @staticmethod
+    def _parallel_model_classification(email: CCEmail) -> Dict[str, Any]:
+        """
+        并行执行模型分类
+        
+        Args:
+            email: 要分类的邮件
+            
+        Returns:
+            分类结果字典
+        """
+        require_both = getattr(settings, 'PARALLEL_REQUIRE_BOTH', True)
+        logger.info(f"并行执行模型，{'要求两个模型都超过阈值' if require_both else '任一模型超过阈值即可'}")
+        
+        # 执行 FastText 分类
+        logger.info(f"步进分类：使用 FastText 进行分类 - 邮件 '{email.subject[:50]}...'")
+        fasttext_result = EmailClassifier._classify_by_ai_agent(email, 'fasttext')
+        fasttext_confidence = fasttext_result.get('confidence', 0)
+        fasttext_passed = (fasttext_result['classification'] != 'unclassified' and 
+                          fasttext_result['classification'] != 'error' and 
+                          fasttext_confidence >= settings.FASTTEXT_THRESHOLD)
+        
+        logger.info(f"FastText 分类结果: '{fasttext_result['classification']}'，置信度: {fasttext_confidence}，{'通过' if fasttext_passed else '未通过'}阈值")
+        
+        # 执行 BERT 分类
+        logger.info(f"步进分类：使用 BERT 进行分类 - 邮件 '{email.subject[:50]}...'")
+        bert_result = EmailClassifier._classify_by_ai_agent(email, 'bert')
+        bert_confidence = bert_result.get('confidence', 0)
+        bert_passed = (bert_result['classification'] != 'unclassified' and 
+                      bert_result['classification'] != 'error' and 
+                      bert_confidence >= settings.BERT_THRESHOLD)
+        
+        logger.info(f"BERT 分类结果: '{bert_result['classification']}'，置信度: {bert_confidence}，{'通过' if bert_passed else '未通过'}阈值")
+        
+        # 根据策略判断是否分类成功
+        if require_both:
+            # 要求两个模型都通过阈值
+            if fasttext_passed and bert_passed:
+                # 两个模型都通过，选择置信度更高的结果
+                if fasttext_confidence >= bert_confidence:
+                    logger.info(f"两个模型都通过阈值，选择置信度更高的 FastText 结果: '{fasttext_result['classification']}'")
+                    return fasttext_result
+                else:
+                    logger.info(f"两个模型都通过阈值，选择置信度更高的 BERT 结果: '{bert_result['classification']}'")
+                    return bert_result
+            else:
+                logger.info("并行模式要求两个模型都通过阈值，但未满足条件")
+        else:
+            # 任一模型通过阈值即可
+            if fasttext_passed:
+                logger.info(f"FastText 通过阈值，使用 FastText 结果: '{fasttext_result['classification']}'")
+                return fasttext_result
+            elif bert_passed:
+                logger.info(f"BERT 通过阈值，使用 BERT 结果: '{bert_result['classification']}'")
+                return bert_result
+            else:
+                logger.info("两个模型都未通过阈值")
+        
+        # 如果根据策略未能分类成功，尝试 LLM
+        logger.info(f"步进分类：使用 LLM 进行分类 - 邮件 '{email.subject[:50]}...'")
+        llm_result = EmailClassifier._classify_by_ai_agent(email, 'llm')
+        llm_confidence = llm_result.get('confidence', 0)
+        
+        if (llm_result['classification'] != 'unclassified' and 
+            llm_result['classification'] != 'error' and 
+            llm_confidence >= settings.LLM_THRESHOLD):
+            logger.info(f"步进分类：邮件通过 LLM 成功分类为 '{llm_result['classification']}'，置信度: {llm_confidence}")
+            return llm_result
+        else:
+            logger.info(f"步进分类：LLM 分类结果 '{llm_result['classification']}' 置信度 {llm_confidence} 低于阈值 {settings.LLM_THRESHOLD}，分类失败")
+            # 如果所有方法都未能提供高置信度的分类，返回 unclassified
+            return {
+                'classification': 'unclassified',
+                'rule_name': 'Step Classification',
+                'explanation': "所有分类方法都未能提供高置信度的分类结果",
+                'confidence': 0.0
+            }
+    
+    @staticmethod
+    def _single_model_classification(email: CCEmail) -> Dict[str, Any]:
+        """
+        单模型执行分类
+        
+        Args:
+            email: 要分类的邮件
+            
+        Returns:
+            分类结果字典
+        """
+        # 获取要使用的模型
+        model_choice = getattr(settings, 'SINGLE_MODEL_CHOICE', 'bert')
+        logger.info(f"单模型执行，使用模型: {model_choice}")
+        
+        if model_choice == 'fasttext':
+            # 使用 FastText 分类
+            logger.info(f"步进分类：使用 FastText 进行分类 - 邮件 '{email.subject[:50]}...'")
             result = EmailClassifier._classify_by_ai_agent(email, 'fasttext')
             
             # 检查 FastText 分类结果的置信度是否高于阈值
@@ -340,10 +530,11 @@ class EmailClassifier:
                 logger.info(f"步进分类：邮件通过 FastText 成功分类为 '{result['classification']}'，置信度: {confidence}")
                 return result
             else:
-                logger.info(f"步进分类：FastText 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.FASTTEXT_THRESHOLD}，继续下一步")
-            
-            # 3. 尝试 BERT 分类
-            logger.info(f"步进分类：第三步 - 对邮件 '{email.subject[:50]}...' 使用 BERT 进行分类")
+                logger.info(f"步进分类：FastText 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.FASTTEXT_THRESHOLD}")
+        
+        elif model_choice == 'bert':
+            # 使用 BERT 分类
+            logger.info(f"步进分类：使用 BERT 进行分类 - 邮件 '{email.subject[:50]}...'")
             result = EmailClassifier._classify_by_ai_agent(email, 'bert')
             
             # 检查 BERT 分类结果的置信度是否高于阈值
@@ -354,34 +545,41 @@ class EmailClassifier:
                 logger.info(f"步进分类：邮件通过 BERT 成功分类为 '{result['classification']}'，置信度: {confidence}")
                 return result
             else:
-                logger.info(f"步进分类：BERT 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.BERT_THRESHOLD}，继续下一步")
+                logger.info(f"步进分类：BERT 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.BERT_THRESHOLD}")
+        
+        else:
+            logger.warning(f"未知的单模型选择: {model_choice}，使用默认的 BERT 模型")
+            # 使用 BERT 作为默认选择
+            logger.info(f"步进分类：使用 BERT 进行分类 - 邮件 '{email.subject[:50]}...'")
+            result = EmailClassifier._classify_by_ai_agent(email, 'bert')
             
-            # 4. 最后尝试 LLM 分类
-            logger.info(f"步进分类：第四步 - 对邮件 '{email.subject[:50]}...' 使用 LLM 进行分类")
-            result = EmailClassifier._classify_by_ai_agent(email, 'llm')
-            
-            # 检查 LLM 分类结果的置信度是否高于阈值
+            # 检查 BERT 分类结果的置信度是否高于阈值
             confidence = result.get('confidence', 0)
             if (result['classification'] != 'unclassified' and 
                 result['classification'] != 'error' and 
-                confidence >= settings.LLM_THRESHOLD):
-                logger.info(f"步进分类：邮件通过 LLM 成功分类为 '{result['classification']}'，置信度: {confidence}")
+                confidence >= settings.BERT_THRESHOLD):
+                logger.info(f"步进分类：邮件通过 BERT 成功分类为 '{result['classification']}'，置信度: {confidence}")
                 return result
             else:
-                logger.info(f"步进分类：LLM 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.LLM_THRESHOLD}，分类失败")
-                # 如果所有方法都未能提供高置信度的分类，返回 unclassified
-                return {
-                    'classification': 'unclassified',
-                    'rule_name': 'Step Classification',
-                    'explanation': "所有分类方法都未能提供高置信度的分类结果",
-                    'confidence': 0.0
-                }
-            
-        except Exception as e:
-            logger.error(f"步进分类过程中出错: {str(e)}", exc_info=True)
+                logger.info(f"步进分类：BERT 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.BERT_THRESHOLD}")
+        
+        # 尝试 LLM 分类（作为备选）
+        logger.info(f"步进分类：使用 LLM 进行分类 - 邮件 '{email.subject[:50]}...'")
+        result = EmailClassifier._classify_by_ai_agent(email, 'llm')
+        
+        # 检查 LLM 分类结果的置信度是否高于阈值
+        confidence = result.get('confidence', 0)
+        if (result['classification'] != 'unclassified' and 
+            result['classification'] != 'error' and 
+            confidence >= settings.LLM_THRESHOLD):
+            logger.info(f"步进分类：邮件通过 LLM 成功分类为 '{result['classification']}'，置信度: {confidence}")
+            return result
+        else:
+            logger.info(f"步进分类：LLM 分类结果 '{result['classification']}' 置信度 {confidence} 低于阈值 {settings.LLM_THRESHOLD}，分类失败")
+            # 如果所有方法都未能提供高置信度的分类，返回 unclassified
             return {
-                'classification': 'error',
+                'classification': 'unclassified',
                 'rule_name': 'Step Classification',
-                'explanation': f"分类错误: {str(e)}",
+                'explanation': "所有分类方法都未能提供高置信度的分类结果",
                 'confidence': 0.0
             } 

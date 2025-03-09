@@ -310,3 +310,19 @@ EMAIL_TYPE_MAPPING = {
     'techsupport': ['support_request', 'technical_issue', 'urgent_issue'],
     'Technical support': ['support_request', 'technical_issue', 'urgent_issue'],
 }
+
+# 邮件分类模型执行策略配置
+# 可选值: 'sequential', 'parallel', 'single'
+MODEL_EXECUTION_STRATEGY = 'sequential'
+
+# 当 MODEL_EXECUTION_STRATEGY 为 'sequential' 时的模型执行顺序
+# 可选值: ['fasttext', 'bert'] 或 ['bert', 'fasttext']
+MODEL_EXECUTION_ORDER = ['fasttext', 'bert']
+
+# 当 MODEL_EXECUTION_STRATEGY 为 'single' 时使用的模型
+# 可选值: 'fasttext' 或 'bert'
+SINGLE_MODEL_CHOICE = 'bert'
+
+# 当 MODEL_EXECUTION_STRATEGY 为 'parallel' 时，是否要求两个模型都超过阈值
+# 如果为 False，则任一模型超过阈值即可
+PARALLEL_REQUIRE_BOTH = True
