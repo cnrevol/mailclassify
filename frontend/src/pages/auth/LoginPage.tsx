@@ -2,9 +2,7 @@ import React from 'react';
 import { Form, Input, Button, Card, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-
-const API_BASE_URL = 'http://localhost:8000/api';
+import axiosInstance from '../../utils/axios';
 
 interface LoginForm {
   username: string;
@@ -16,7 +14,7 @@ const LoginPage: React.FC = () => {
 
   const onFinish = async (values: LoginForm) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/token/`, values);
+      const response = await axiosInstance.post('/token/', values);
       const { access, refresh } = response.data;
       
       // 保存token到localStorage
@@ -24,9 +22,7 @@ const LoginPage: React.FC = () => {
       localStorage.setItem('refreshToken', refresh);
       
       // 获取用户信息
-      const userResponse = await axios.get(`${API_BASE_URL}/user/`, {
-        headers: { Authorization: `Bearer ${access}` }
-      });
+      const userResponse = await axiosInstance.get('/user/');
       
       // 保存用户信息
       localStorage.setItem('user', JSON.stringify(userResponse.data));

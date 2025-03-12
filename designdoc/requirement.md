@@ -1,7 +1,7 @@
 
 
 #### 功能点
-1. 前后端框架
+1. 前后端框架，基本功能，日志，异常处理，api manage。
 2. 用户管理
 3. Outlook 邮箱认证
   1. azure App registrations , Microsoft Entra ID

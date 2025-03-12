@@ -3,6 +3,7 @@ import { Table, Button, Modal, Form, Input, Space, message, Switch, Tooltip } fr
 import { PlusOutlined, EditOutlined, DeleteOutlined, SyncOutlined, KeyOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { useLocation } from 'react-router-dom';
+import MonitoringDetailModal from '../../components/mail/MonitoringDetailModal';
 
 interface MailConfig {
   id: number;
@@ -38,6 +39,8 @@ const MailConfigPage: React.FC = () => {
   const [authLoading, setAuthLoading] = useState<ClassificationStatus>({});
   const [monitoringStatus, setMonitoringStatus] = useState<{[key: string]: MonitoringStatus}>({});
   const [monitoringLoading, setMonitoringLoading] = useState<{[key: number]: boolean}>({});
+  const [monitoringModalVisible, setMonitoringModalVisible] = useState(false);
+  const [selectedEmail, setSelectedEmail] = useState<string>('');
   
   // 获取查询参数
   const location = useLocation();
@@ -203,31 +206,29 @@ const MailConfigPage: React.FC = () => {
       // 获取当前监控状态
       const currentStatus = monitoringStatus[record.email]?.is_monitoring || false;
       
-      // 切换监控状态
-      const action = currentStatus ? 'stop' : 'start';
-      
-      // 调用监控API
-      const response = await axios.post('/api/mail/monitor/', 
-        { email: record.email, action },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
-      );
-      
-      if (response.data.status === 'success') {
-        // 更新监控状态
-        setMonitoringStatus(prev => ({
-          ...prev,
-          [record.email]: response.data.monitoring_status
-        }));
-        
-        // 显示操作结果
-        message.success(response.data.message);
-        
-        // 如果是开始监控，立即执行一次分类
-        if (action === 'start') {
-          await runClassification(record.email);
-        }
+      if (!currentStatus) {
+        // 如果未在监控中，打开监控详情窗口
+        setSelectedEmail(record.email);
+        setMonitoringModalVisible(true);
       } else {
-        message.warning(response.data.message || '操作失败');
+        // 如果正在监控中，停止监控
+        const response = await axios.post('/api/mail/monitor/', 
+          { email: record.email, action: 'stop' },
+          { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
+        );
+        
+        if (response.data.status === 'success') {
+          // 更新监控状态
+          setMonitoringStatus(prev => ({
+            ...prev,
+            [record.email]: response.data.monitoring_status
+          }));
+          
+          // 显示操作结果
+          message.success(response.data.message);
+        } else {
+          message.warning(response.data.message || '操作失败');
+        }
       }
     } catch (error: any) {
       message.error('操作失败: ' + (error.response?.data?.error || error.message));
@@ -385,6 +386,16 @@ const MailConfigPage: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+      <MonitoringDetailModal
+        visible={monitoringModalVisible}
+        email={selectedEmail}
+        onClose={() => {
+          setMonitoringModalVisible(false);
+          setSelectedEmail('');
+          // Refresh the monitoring status
+          fetchConfigs();
+        }}
+      />
     </div>
   );
 };

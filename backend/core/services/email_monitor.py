@@ -5,7 +5,7 @@ from django.conf import settings
 from django.utils import timezone
 from ..models import CCUserMailInfo, CCEmailMonitorStatus, CCEmail
 from .email_classifier import EmailClassifier
-from .graph_service import GraphService
+from .mail_service import OutlookMailService
 from .email_forwarding import EmailForwardingService
 
 logger = logging.getLogger(__name__)
@@ -158,8 +158,7 @@ class EmailMonitorService:
             
             # 从 Outlook 获取邮件
             logger.info(f"开始从 Outlook 获取 {email} 的邮件，时间范围: {hours:.1f}小时")
-            from .graph_service import GraphService
-            mail_service = GraphService(user_mail)
+            mail_service = OutlookMailService(user_mail)
             emails = mail_service.fetch_emails(hours=hours, skip_processed=True)
             logger.info(f"成功获取 {len(emails)} 封邮件")
             
@@ -241,11 +240,13 @@ class EmailMonitorService:
             forwarding_results = []
             if total_classified > 0:
                 logger.info("开始处理邮件转发")
-                
+                # 创建 Graph API 服务
+                from core.services.graph_service import GraphService
+                graph_service = GraphService(user_mail)
                 # 处理邮件转发
                 forwarding_results = EmailForwardingService.process_classified_emails(
                     classification_results=results,
-                    graph_service=mail_service
+                    graph_service=graph_service
                 )
                 
                 # 标记已转发的邮件

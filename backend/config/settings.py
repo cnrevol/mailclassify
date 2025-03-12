@@ -23,6 +23,7 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 # Application definition
 INSTALLED_APPS = [
+    'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -30,14 +31,14 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'corsheaders',
+    'channels',
     'core.apps.CoreConfig',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -152,6 +153,32 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+    'upgrade',
+    'connection',
+    'access-control-allow-origin',
+    'access-control-allow-headers',
+    'access-control-allow-methods',
+]
+
+# 预检请求的缓存时间（秒）
+CORS_PREFLIGHT_MAX_AGE = 86400  # 24小时
+
+# 允许所有请求方法
+CORS_ALLOW_ALL_METHODS = True
+
+# 移除 CORS_URLS_REGEX，因为我们想要对所有 URL 启用 CORS
+# CORS_URLS_REGEX = r'^/ws/.*$'
+
+# 更新 CORS_ALLOWED_ORIGIN_REGEXES
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^http://localhost:3000$",
+    r"^http://127\.0\.0\.1:3000$",
+]
+
+# 添加额外的 CORS 配置
+CORS_EXPOSE_HEADERS = [
+    'access-control-allow-origin',
+    'access-control-allow-credentials',
 ]
 
 # REST Framework settings
@@ -313,7 +340,7 @@ EMAIL_TYPE_MAPPING = {
 
 # 邮件分类模型执行策略配置
 # 可选值: 'sequential', 'parallel', 'single'
-MODEL_EXECUTION_STRATEGY = 'sequential'
+MODEL_EXECUTION_STRATEGY = 'single'
 
 # 当 MODEL_EXECUTION_STRATEGY 为 'sequential' 时的模型执行顺序
 # 可选值: ['fasttext', 'bert'] 或 ['bert', 'fasttext']
@@ -321,7 +348,7 @@ MODEL_EXECUTION_ORDER = ['fasttext', 'bert']
 
 # 当 MODEL_EXECUTION_STRATEGY 为 'single' 时使用的模型
 # 可选值: 'fasttext' 或 'bert'
-SINGLE_MODEL_CHOICE = 'bert'
+SINGLE_MODEL_CHOICE = 'fasttext'
 
 # 当 MODEL_EXECUTION_STRATEGY 为 'parallel' 时，是否要求两个模型都超过阈值
 # 如果为 False，则任一模型超过阈值即可
@@ -330,3 +357,17 @@ PARALLEL_REQUIRE_BOTH = True
 # 默认邮件分类方法
 # 可选值: 'decision_tree', 'llm', 'bert', 'fasttext', 'sequence', 'stepgo'
 DEFAULT_EMAIL_CLASSIFICATION_METHOD = 'stepgo'
+
+# Add ASGI application
+ASGI_APPLICATION = 'config.asgi.application'
+
+# Channel layers configuration
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer'
+    }
+}
+
+# Email monitoring settings
+EMAIL_MONITOR_INTERVAL = 10  # seconds
+EMAIL_MONITOR_CHECK_INTERVAL = 10  # minutes
