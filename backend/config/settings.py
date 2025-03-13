@@ -317,13 +317,13 @@ OAUTH_SETTINGS = {
 
 
 FASTTEXT_LABEL_MAP = {
-    "1": "purchase",
+    "1": "accounting_billing",
     "2": "techsupport",
     "3": "festival"
 }
 
 BERT_LABEL_MAP = {
-    1: "purchase",
+    1: "accounting_billing",
     2: "techsupport",
     3: "festival"
 }
@@ -333,10 +333,14 @@ BERT_THRESHOLD = 0.9
 LLM_THRESHOLD = 0.95
 
 EMAIL_TYPE_MAPPING = {
-    'purchase': ['sales_inquiry', 'general_inquiry'],
+    'accounting_billing': ['billing'],
     'techsupport': ['support_request', 'technical_issue', 'urgent_issue'],
     'Technical support': ['support_request', 'technical_issue', 'urgent_issue'],
-    'accounting_collection': ['sales_inquiry', 'general_inquiry'],
+    'accounting_collection': ['collection'],
+    'other':['urgent_issue'],
+    'unclassified':['urgent_issue'],
+    'needocr':['ocr'],
+    'angry':['angry'],
 }
 
 # 邮件分类模型执行策略配置

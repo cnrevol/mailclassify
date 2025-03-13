@@ -238,42 +238,43 @@ class EmailClassifier:
             logger.debug(f"尝试匹配规则: {rule.name}")
             
             # 检查规则条件
-            matches = True
+            matches = False  # 改为 False，任一条件匹配即为 True
             rule_logs = []
+            has_conditions = False  # 标记是否有任何条件
             
             # 检查发件人域名
             if rule.sender_domains:
-                has_any_condition = True
+                has_conditions = True
                 sender_domain = email.sender.split('@')[-1].lower()
                 is_domain_match = sender_domain in rule.sender_domains
                 rule_logs.append(f"sender_domain: 域名 '{sender_domain}' {'匹配' if is_domain_match else '不匹配'}")
-                matches = matches and is_domain_match
+                matches = matches or is_domain_match  # 使用 OR 逻辑
             
             # 检查主题关键词
             if rule.subject_keywords:
-                has_any_condition = True
+                has_conditions = True
                 subject_matches = [
                     keyword.lower() for keyword in rule.subject_keywords 
                     if keyword.lower() in email.subject.lower()
                 ]
                 is_subject_match = len(subject_matches) > 0
                 rule_logs.append(f"subject_keywords: {'找到' if is_subject_match else '未找到'}任何主题关键词")
-                matches = matches and is_subject_match
+                matches = matches or is_subject_match  # 使用 OR 逻辑
             
             # 检查正文关键词
             if rule.body_keywords:
-                has_any_condition = True
+                has_conditions = True
                 body_matches = [
                     keyword.lower() for keyword in rule.body_keywords 
                     if keyword.lower() in email.content.lower()
                 ]
                 is_body_match = len(body_matches) > 0
                 rule_logs.append(f"body_keywords: {'找到' if is_body_match else '未找到'}任何正文关键词")
-                matches = matches and is_body_match
+                matches = matches or is_body_match  # 使用 OR 逻辑
             
             # 检查附件数量
             if rule.min_attachments > 0 or rule.max_attachments:
-                has_any_condition = True
+                has_conditions = True
                 is_count_match = True
                 count_details = []
                 
@@ -285,16 +286,12 @@ class EmailClassifier:
                     is_count_match = False
                     count_details.append(f"数量({email.attachment_count})超过最大限制({rule.max_attachments})")
                 
-                rule_logs.append({
-                    'condition': 'attachment_count',
-                    'matched': is_count_match,
-                    'details': "附件数量符合要求" if is_count_match else ", ".join(count_details)
-                })
-                matches = matches and is_count_match
+                rule_logs.append(f"attachment_count: {'符合要求' if is_count_match else ', '.join(count_details)}")
+                matches = matches or is_count_match  # 使用 OR 逻辑
             
             # 检查附件大小
             if rule.min_attachment_size > 0 or rule.max_attachment_size:
-                has_any_condition = True
+                has_conditions = True
                 is_size_match = True
                 size_details = []
                 
@@ -306,20 +303,21 @@ class EmailClassifier:
                     is_size_match = False
                     size_details.append(f"大小({email.total_attachment_size}B)超过最大限制({rule.max_attachment_size}B)")
                 
-                rule_logs.append({
-                    'condition': 'attachment_size',
-                    'matched': is_size_match,
-                    'details': "附件大小符合要求" if is_size_match else ", ".join(size_details)
-                })
-                matches = matches and is_size_match
+                rule_logs.append(f"attachment_size: {'符合要求' if is_size_match else ', '.join(size_details)}")
+                matches = matches or is_size_match  # 使用 OR 逻辑
             
             # 记录所有匹配结果
             logger.debug(f"规则 '{rule.name}' 匹配结果:")
             for log in rule_logs:
                 logger.debug(f"- {log}")
             
+            # 如果规则没有任何条件，跳过
+            if not has_conditions:
+                logger.debug(f"规则 '{rule.name}' 没有设置任何条件，跳过")
+                continue
+            
             if matches:
-                logger.info(f"规则 '{rule.name}' 的所有条件都匹配")
+                logger.info(f"规则 '{rule.name}' 至少一个条件匹配")
                 return {
                     'classification': rule.classification,
                     'confidence': 1.0,

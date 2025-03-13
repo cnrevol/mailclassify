@@ -64,6 +64,7 @@ class EmailClassificationTool(Tool):
         # 使用 AUTHORIZED_TYPES 中的值
         self.output_type = "object"
         self.available_categories: List[str] = []  # Will be set by the agent
+        self.categories_descriptions: List[str] = []  
         self.logger = WebSocketLogger(__name__, email)
         super().__init__(name=name, description=description)
         self.logger.debug(f"Initialized EmailClassificationTool: {name}")
@@ -122,7 +123,7 @@ class LLMClassificationTool(EmailClassificationTool):
             
             user_message = {
                 "role": "user",
-                "content": f"请分析以下邮件内容：\n\n发件人: {sender}\n主题: {subject}\n内容:\n{clean_content[:1000]}..."
+                "content": f"请分析以下邮件内容：\n\n发件人: {sender}\n主题: {subject}\n内容:\n{clean_content[:2000]}..."
             }
             
             # 发送消息到 LLM

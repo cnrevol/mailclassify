@@ -173,7 +173,8 @@ class EmailMonitorService:
                 hours = 2
             
             # 从 Outlook 获取邮件
-            logger.info(f"开始从 Outlook 获取 {email} 的邮件，时间范围: {hours:.1f}小时")
+            # logger.info(f"开始从 Outlook 获取 {email} 的邮件，时间范围: {hours:.1f}小时")
+            logger.info(f"开始从 Outlook: {email} 检查是否有新的邮件。")
             mail_service = OutlookMailService(user_mail)
             emails = mail_service.fetch_emails(hours=int(hours), skip_processed=True)
             logger.info(f"成功获取 {len(emails)} 封邮件")
