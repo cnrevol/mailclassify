@@ -4,7 +4,7 @@ import asyncio
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from typing import Optional
-from .consumers import EmailMonitorConsumer
+
 
 class WebSocketLogHandler(logging.Handler):
     """Custom logging handler that forwards logs to WebSocket clients"""
@@ -13,7 +13,8 @@ class WebSocketLogHandler(logging.Handler):
         super().__init__()
         self.email = email
         self.channel_layer = get_channel_layer()
-        self.room_group_name = f'email_monitor_{self.email}'
+        # Generate room group name directly
+        self.room_group_name = f'email_monitor_{self.email.replace("@", "_at_").replace(".", "_dot_")}'
         
     def emit(self, record):
         """Emit a log record"""
@@ -21,12 +22,22 @@ class WebSocketLogHandler(logging.Handler):
             # Format the log message
             msg = self.format(record)
             
+            # Create a structured log message
+            log_data = {
+                'timestamp': record.created,
+                'level': record.levelname,
+                'logger': record.name,
+                'process': record.process,
+                'thread': record.thread,
+                'message': msg
+            }
+            
             # Send to WebSocket group
             async_to_sync(self.channel_layer.group_send)(
                 self.room_group_name,
                 {
                     'type': 'log_message',
-                    'message': msg
+                    'message': msg  # 直接发送格式化后的消息，而不是JSON
                 }
             )
         except Exception:
@@ -40,13 +51,20 @@ class WebSocketLogger:
         self.email = email
         
         if email:
-            # Add WebSocket handler
-            ws_handler = WebSocketLogHandler(email)
-            ws_handler.setFormatter(logging.Formatter(
-                '[%(asctime)s] %(levelname)s: %(message)s',
-                datefmt='%Y-%m-%d %H:%M:%S'
-            ))
-            self.logger.addHandler(ws_handler)
+            # Check if WebSocket handler already exists
+            has_ws_handler = any(
+                isinstance(handler, WebSocketLogHandler) and handler.email == email
+                for handler in self.logger.handlers
+            )
+            
+            if not has_ws_handler:
+                # Add WebSocket handler only if it doesn't exist
+                ws_handler = WebSocketLogHandler(email)
+                ws_handler.setFormatter(logging.Formatter(
+                    '[%(asctime)s] %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S'
+                ))
+                self.logger.addHandler(ws_handler)
     
     def debug(self, msg, *args, **kwargs):
         """Log debug message"""

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Table, Button, Modal, Form, Input, Space, message, Switch, Tooltip } from 'antd';
+import { Table, Button, Modal, Form, Input, Space, message, Tooltip } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SyncOutlined, KeyOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { useLocation } from 'react-router-dom';
@@ -27,15 +27,13 @@ interface MonitoringStatus {
 }
 
 // 默认分类方法
-const DEFAULT_CLASSIFICATION_METHOD = 'stepgo';
+//const DEFAULT_CLASSIFICATION_METHOD = 'stepgo';
 
 const MailConfigPage: React.FC = () => {
   const [configs, setConfigs] = useState<MailConfig[]>([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [classifying, setClassifying] = useState<ClassificationStatus>({});
-  const [loadingStatus, setLoadingStatus] = useState<ClassificationStatus>({});
   const [authLoading, setAuthLoading] = useState<ClassificationStatus>({});
   const [monitoringStatus, setMonitoringStatus] = useState<{[key: string]: MonitoringStatus}>({});
   const [monitoringLoading, setMonitoringLoading] = useState<{[key: number]: boolean}>({});
@@ -238,36 +236,6 @@ const MailConfigPage: React.FC = () => {
     }
   };
 
-  // 添加执行分类的方法
-  const runClassification = async (email: string) => {
-    try {
-      // 执行一次分类
-      const response = await axios.post('/api/mail/classify/', 
-        { email, hours: 2, method: DEFAULT_CLASSIFICATION_METHOD },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }
-      );
-      
-      // 显示分类结果
-      if (response.data.status === 'success') {
-        message.success(response.data.message);
-        
-        // 如果有分类统计信息，显示更详细的消息
-        if (response.data.classification_stats) {
-          const stats = response.data.classification_stats;
-          const statsMessage = Object.entries(stats)
-            .map(([category, count]) => `${category}: ${count}封`)
-            .join(', ');
-          
-          if (statsMessage) {
-            message.info(`分类详情: ${statsMessage}`);
-          }
-        }
-      }
-    } catch (error: any) {
-      message.error('分类失败: ' + (error.response?.data?.error || error.message));
-    }
-  };
-
   const columns = [
     {
       title: '邮箱地址',
@@ -282,20 +250,26 @@ const MailConfigPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: MailConfig) => (
+      render: (_: unknown, record: MailConfig) => (
         <Space>
           <Button 
             type="text" 
             onClick={() => handleEdit(record)}
           >
-            <EditOutlined />
+            <EditOutlined 
+              onPointerEnterCapture={() => {}}
+              onPointerLeaveCapture={() => {}}
+            />
           </Button>
           <Button 
             type="text" 
             onClick={() => handleDelete(record.id)}
             danger
           >
-            <DeleteOutlined />
+            <DeleteOutlined 
+              onPointerEnterCapture={() => {}}
+              onPointerLeaveCapture={() => {}}
+            />
           </Button>
         </Space>
       ),
@@ -303,12 +277,15 @@ const MailConfigPage: React.FC = () => {
     {
       title: '授权',
       key: 'auth',
-      render: (_: any, record: MailConfig) => (
+      render: (_: unknown, record: MailConfig) => (
         <Button
           type="default"
           loading={authLoading[record.id]}
           onClick={() => handleAuth(record)}
-          icon={<KeyOutlined />}
+          icon={<KeyOutlined 
+            onPointerEnterCapture={() => {}}
+            onPointerLeaveCapture={() => {}}
+          />}
         >
           授权
         </Button>
@@ -317,7 +294,7 @@ const MailConfigPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_, record: MailConfig) => (
+      render: (_: unknown, record: MailConfig) => (
         <Tooltip title="开始/停止邮件监控和分类">
           <Button
             type={monitoringStatus[record.email]?.is_monitoring ? "primary" : "default"}
@@ -326,7 +303,11 @@ const MailConfigPage: React.FC = () => {
           >
             {monitoringStatus[record.email]?.is_monitoring ? (
               <>
-                <SyncOutlined spin /> 监控中
+                <SyncOutlined 
+                  spin 
+                  onPointerEnterCapture={() => {}}
+                  onPointerLeaveCapture={() => {}}
+                /> 监控中
                 {monitoringStatus[record.email]?.last_found_emails > 0 && 
                   ` (${monitoringStatus[record.email]?.total_classified_emails}封)`}
               </>
@@ -344,7 +325,10 @@ const MailConfigPage: React.FC = () => {
           type="primary" 
           onClick={handleAdd}
         >
-          <PlusOutlined />
+          <PlusOutlined 
+            onPointerEnterCapture={() => {}}
+            onPointerLeaveCapture={() => {}}
+          />
           添加配置
         </Button>
       </div>

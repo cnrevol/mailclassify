@@ -47,14 +47,7 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
         ws.send(JSON.stringify({ action: 'start_monitoring' }));
       };
 
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === 'status_update') {
-          setStatus(data.data);
-        } else if (data.type === 'log_message') {
-          setLogs(prev => [...prev, data.message]);
-        }
-      };
+      ws.onmessage = handleWebSocketMessage;
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
@@ -93,6 +86,40 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
     return total > 0 ? Math.round((current / total) * 100) : 0;
   };
 
+  const handleWebSocketMessage = (event: MessageEvent) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'log_message') {
+        // 尝试解析消息为JSON格式
+        try {
+          const logData = JSON.parse(data.message);
+          // 获取消息内容并去掉日志级别
+          const message = logData.message || '';
+          const cleanMessage = message.replace(/(ERROR|DEBUG|INFO|WARNING|CRITICAL):\s*/, '');
+          // 使用日志中的时间戳
+          const timestamp = message.match(/\[([^\]]+)\]/)?.[1] || '';
+          const messageContent = cleanMessage.replace(/\[[^\]]+\]\s*/, '').trim();
+          const formattedLog = `[${timestamp}] ${messageContent}`;
+          setLogs(prev => [...prev, formattedLog]);
+        } catch (e) {
+          // 如果解析JSON失败，说明是普通文本格式
+          const message = data.message;
+          // 去掉日志级别
+          const cleanMessage = message.replace(/(ERROR|DEBUG|INFO|WARNING|CRITICAL):\s*/, '');
+          // 提取时间戳和消息内容
+          const timestamp = cleanMessage.match(/\[([^\]]+)\]/)?.[1] || '';
+          const messageContent = cleanMessage.replace(/\[[^\]]+\]\s*/, '').trim();
+          const formattedLog = `[${timestamp}] ${messageContent}`;
+          setLogs(prev => [...prev, formattedLog]);
+        }
+      } else if (data.type === 'status_update') {
+        setStatus(data.data);
+      }
+    } catch (error) {
+      console.error('Error handling WebSocket message:', error);
+    }
+  };
+
   return (
     <Modal
       title="邮件监控详情"
@@ -108,7 +135,14 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
           <Space direction="vertical" style={{ width: '100%' }}>
             <div>
               <Space align="center">
-                <RobotOutlined className="monitor-icon" style={{ fontSize: 20 }} role="img" aria-label="robot" />
+                <RobotOutlined 
+                  className="monitor-icon" 
+                  style={{ fontSize: 20 }} 
+                  role="img" 
+                  aria-label="robot"
+                  onPointerEnterCapture={() => {}}
+                  onPointerLeaveCapture={() => {}}
+                />
                 <Text strong>监控师</Text>
                 <Progress
                   percent={calculateProgress(status.total_emails, status.total_emails)}
@@ -120,7 +154,15 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
             </div>
             <div>
               <Space align="center">
-                <SyncOutlined className="monitor-icon" style={{ fontSize: 20 }} spin role="img" aria-label="loading" />
+                <SyncOutlined 
+                  className="monitor-icon" 
+                  style={{ fontSize: 20 }} 
+                  spin 
+                  role="img" 
+                  aria-label="loading"
+                  onPointerEnterCapture={() => {}}
+                  onPointerLeaveCapture={() => {}}
+                />
                 <Text strong>处理智能体</Text>
                 <Progress
                   percent={calculateProgress(status.processed_emails, status.total_emails)}

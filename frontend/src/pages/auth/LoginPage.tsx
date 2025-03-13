@@ -54,7 +54,10 @@ const LoginPage: React.FC = () => {
             rules={[{ required: true, message: '请输入用户名！' }]}
           >
             <Input 
-              prefix={<UserOutlined />} 
+              prefix={<UserOutlined 
+                onPointerEnterCapture={() => {}}
+                onPointerLeaveCapture={() => {}}
+              />} 
               placeholder="用户名" 
               size="large"
             />
@@ -65,7 +68,10 @@ const LoginPage: React.FC = () => {
             rules={[{ required: true, message: '请输入密码！' }]}
           >
             <Input.Password
-              prefix={<LockOutlined />}
+              prefix={<LockOutlined 
+                onPointerEnterCapture={() => {}}
+                onPointerLeaveCapture={() => {}}
+              />}
               placeholder="密码"
               size="large"
             />

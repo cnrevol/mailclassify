@@ -336,6 +336,7 @@ EMAIL_TYPE_MAPPING = {
     'purchase': ['sales_inquiry', 'general_inquiry'],
     'techsupport': ['support_request', 'technical_issue', 'urgent_issue'],
     'Technical support': ['support_request', 'technical_issue', 'urgent_issue'],
+    'accounting_collection': ['sales_inquiry', 'general_inquiry'],
 }
 
 # 邮件分类模型执行策略配置
@@ -371,3 +372,6 @@ CHANNEL_LAYERS = {
 # Email monitoring settings
 EMAIL_MONITOR_INTERVAL = 10  # seconds
 EMAIL_MONITOR_CHECK_INTERVAL = 10  # minutes
+
+# AI模型配置
+AI_CONFIDENCE_THRESHOLD = 0.7  # AI模型置信度阈值

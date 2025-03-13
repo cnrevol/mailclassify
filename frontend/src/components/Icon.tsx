@@ -1,16 +1,18 @@
 import React from 'react';
-import { AntdIconProps } from '@ant-design/icons/lib/components/AntdIcon';
-import * as AntIcons from '@ant-design/icons';
+import * as Icons from '@ant-design/icons';
+import type { AntdIconProps } from '@ant-design/icons/lib/components/AntdIcon';
 
 interface IconProps {
-  type: keyof typeof AntIcons;
-  size?: 'small' | 'default' | 'large';
+  name: keyof typeof Icons;
+  className?: string;
 }
 
-const Icon: React.FC<IconProps> = ({ type, size = 'default' }) => {
-  const IconComponent = AntIcons[type];
-  const className = size === 'default' ? 'anticon' : `anticon-${size}`;
-  
+const Icon: React.FC<IconProps> = ({ name, className }) => {
+  const IconComponent = Icons[name] as React.ComponentType<AntdIconProps>;
+  if (!IconComponent) {
+    console.error(`Icon ${name} not found`);
+    return null;
+  }
   return <IconComponent className={className} />;
 };
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Button, Input, Avatar, Dropdown, Space, Modal, Tooltip, Select, message } from 'antd';
+import { Layout, Menu, Button, Input, Avatar, Dropdown, Modal, Tooltip, Select, message } from 'antd';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -16,7 +16,6 @@ import MailConfigPage from '../mail/MailConfigPage';
 import ReactMarkdown from 'react-markdown';
 
 const { Header, Sider, Content } = Layout;
-const { Option } = Select;
 
 type IconComponent = React.ForwardRefExoticComponent<any>;
 

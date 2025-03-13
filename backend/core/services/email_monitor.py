@@ -7,72 +7,88 @@ from ..models import CCUserMailInfo, CCEmailMonitorStatus, CCEmail
 from .email_classifier import EmailClassifier
 from .mail_service import OutlookMailService
 from .email_forwarding import EmailForwardingService
+from ..sclogging import WebSocketLogger
 
 logger = logging.getLogger(__name__)
 
 class EmailMonitorService:
     """邮件监控服务，用于定期检查和分类新邮件"""
     
-    @staticmethod
-    def start_monitoring(email: str) -> bool:
+    def __init__(self, email: str):
         """
-        开始监控指定邮箱
+        初始化邮件监控服务
+        
+        Args:
+            email: 要监控的邮箱地址
+        """
+        self.email = email
+        self.logger = WebSocketLogger(__name__, email)
+    
+    @classmethod
+    def start_monitoring(cls, email: str) -> bool:
+        """
+        启动邮件监控
         
         Args:
             email: 要监控的邮箱地址
             
         Returns:
-            bool: 是否成功启动监控
+            是否成功启动监控
         """
+        service = cls(email)
+        return service._start_monitoring()
+        
+    def _start_monitoring(self) -> bool:
+        """启动邮件监控的内部方法"""
         try:
-            # 检查邮箱配置是否存在
-            user_mail = CCUserMailInfo.objects.filter(email=email, is_active=True).first()
-            if not user_mail:
-                logger.error(f"未找到邮箱配置: {email}")
-                return False
-                
-            # 创建或更新监控状态
-            monitor_status, created = CCEmailMonitorStatus.objects.update_or_create(
-                email=email,
-                defaults={
-                    'is_monitoring': True,
-                    'updated_at': timezone.now()
-                }
+            # 获取或创建监控状态
+            status, created = CCEmailMonitorStatus.objects.get_or_create(
+                email=self.email,
+                defaults={'is_monitoring': True}
             )
             
-            logger.info(f"已开始监控邮箱: {email}")
+            if not created:
+                # 如果已存在，更新状态
+                status.is_monitoring = True
+                status.save(update_fields=['is_monitoring'])
+            
+            self.logger.info(f"开始监控邮箱: {self.email}")
             return True
             
         except Exception as e:
-            logger.error(f"启动邮箱监控失败: {str(e)}", exc_info=True)
+            self.logger.error(f"启动邮件监控时出错: {str(e)}", exc_info=True)
             return False
     
-    @staticmethod
-    def stop_monitoring(email: str) -> bool:
+    @classmethod
+    def stop_monitoring(cls, email: str) -> bool:
         """
-        停止监控指定邮箱
+        停止邮件监控
         
         Args:
             email: 要停止监控的邮箱地址
             
         Returns:
-            bool: 是否成功停止监控
+            是否成功停止监控
         """
+        service = cls(email)
+        return service._stop_monitoring()
+        
+    def _stop_monitoring(self) -> bool:
+        """停止邮件监控的内部方法"""
         try:
             # 更新监控状态
-            monitor_status = CCEmailMonitorStatus.objects.filter(email=email).first()
-            if monitor_status:
-                monitor_status.is_monitoring = False
-                monitor_status.updated_at = timezone.now()
-                monitor_status.save()
-                logger.info(f"已停止监控邮箱: {email}")
+            status = CCEmailMonitorStatus.objects.filter(email=self.email).first()
+            if status:
+                status.is_monitoring = False
+                status.save(update_fields=['is_monitoring'])
+                self.logger.info(f"停止监控邮箱: {self.email}")
                 return True
             else:
-                logger.warning(f"未找到邮箱监控状态: {email}")
+                self.logger.warning(f"未找到邮箱的监控状态: {self.email}")
                 return False
                 
         except Exception as e:
-            logger.error(f"停止邮箱监控失败: {str(e)}", exc_info=True)
+            self.logger.error(f"停止邮件监控时出错: {str(e)}", exc_info=True)
             return False
     
     @staticmethod
@@ -115,8 +131,8 @@ class EmailMonitorService:
                 'error': str(e)
             }
     
-    @staticmethod
-    def check_new_emails(email: str, check_interval_minutes: int = 5) -> dict:
+    @classmethod
+    def check_new_emails(cls, email: str, check_interval_minutes: int = 5) -> dict:
         """
         检查并处理新邮件
         
@@ -159,7 +175,7 @@ class EmailMonitorService:
             # 从 Outlook 获取邮件
             logger.info(f"开始从 Outlook 获取 {email} 的邮件，时间范围: {hours:.1f}小时")
             mail_service = OutlookMailService(user_mail)
-            emails = mail_service.fetch_emails(hours=hours, skip_processed=True)
+            emails = mail_service.fetch_emails(hours=int(hours), skip_processed=True)
             logger.info(f"成功获取 {len(emails)} 封邮件")
             
             # 更新最后检查时间
@@ -246,7 +262,7 @@ class EmailMonitorService:
                 # 处理邮件转发
                 forwarding_results = EmailForwardingService.process_classified_emails(
                     classification_results=results,
-                    graph_service=graph_service
+                    mail_service=graph_service
                 )
                 
                 # 标记已转发的邮件

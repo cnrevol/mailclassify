@@ -88,7 +88,8 @@ class EmailMonitorConsumer(AsyncWebsocketConsumer):
                 
                 # Send log message if available
                 if result.get('message'):
-                    await self.send_log(result['message'])
+                    # 不直接发送消息，而是通过logger发送，这样会自动添加时间戳
+                    logger.info(result['message'])
                 
             except Exception as e:
                 logger.error(f"Error in monitoring loop: {str(e)}", exc_info=True)
@@ -127,7 +128,29 @@ class EmailMonitorConsumer(AsyncWebsocketConsumer):
     
     async def send_log(self, message):
         """Send log message to WebSocket"""
-        await self.send(text_data=json.dumps({
-            'type': 'log_message',
-            'message': message
-        })) 
+        try:
+            if isinstance(message, str):
+                # 如果是字符串，直接发送
+                await self.send(text_data=json.dumps({
+                    'type': 'log_message',
+                    'message': message
+                }))
+            elif isinstance(message, dict):
+                # 如果是字典，转换为JSON
+                await self.send(text_data=json.dumps({
+                    'type': 'log_message',
+                    'message': json.dumps(message)
+                }))
+        except Exception as e:
+            logger.error(f"Error sending log message: {str(e)}", exc_info=True)
+    
+    async def log_message(self, event):
+        """Handle log message from group"""
+        try:
+            # 直接转发消息到客户端
+            await self.send(text_data=json.dumps({
+                'type': 'log_message',
+                'message': event['message']
+            }))
+        except Exception as e:
+            logger.error(f"Error sending log message: {str(e)}", exc_info=True) 

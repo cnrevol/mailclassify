@@ -6,12 +6,9 @@ class CoreConfig(AppConfig):
     name = "core"
 
     def ready(self):
-        """Initialize app when Django is ready"""
-        # Import providers only when Django is ready
-        from .base_providers import LLMProvider
-        from .llm_factory import LLMFactory
-        from .model_providers import BertProvider, FastTextProvider
-
-        # Register providers
-        LLMFactory.register_provider('bert', BertProvider)
-        LLMFactory.register_provider('fasttext', FastTextProvider)
+        """
+        在应用程序准备就绪时执行初始化操作
+        """
+        # 使用延迟导入避免循环依赖
+        from .utils.email_categories import load_email_categories
+        load_email_categories()
