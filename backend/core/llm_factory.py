@@ -35,6 +35,15 @@ class AzureOpenAIProvider(LLMProvider):
             logger.error(f"Chat error with Azure OpenAI: {str(e)}")
             return None
 
+    def get_completion(self, message: str) -> Optional[str]:
+        """获取完成结果"""
+        try:
+            messages = [{"role": "user", "content": message}]
+            return self.chat(messages)
+        except Exception as e:
+            logger.error(f"Get completion error with Azure OpenAI: {str(e)}")
+            return None
+
 class OpenAIProvider(LLMProvider):
     """OpenAI提供者"""
     def initialize(self) -> bool:
@@ -61,6 +70,15 @@ class OpenAIProvider(LLMProvider):
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Chat error with OpenAI: {str(e)}")
+            return None
+
+    def get_completion(self, message: str) -> Optional[str]:
+        """获取完成结果"""
+        try:
+            messages = [{"role": "user", "content": message}]
+            return self.chat(messages)
+        except Exception as e:
+            logger.error(f"Get completion error with OpenAI: {str(e)}")
             return None
 
 class LLMFactory:

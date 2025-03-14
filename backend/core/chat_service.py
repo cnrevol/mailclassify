@@ -54,6 +54,11 @@ class ChatService:
 
             # Get completion from LLM
             response = llm.get_completion(message)
+            if response is None:
+                return {
+                    'status': 'error',
+                    'message': 'Failed to get response from LLM'
+                }
 
             # Parse response content
             content_type = 'text'
