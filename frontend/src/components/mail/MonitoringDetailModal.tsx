@@ -56,6 +56,36 @@ const CategoryItem = styled(List.Item)<ThemeProps>`
   }
 `;
 
+const ProgressRow = styled(Space)`
+  width: 100%;
+  justify-content: flex-start;
+  align-items: center;
+  height: 32px;
+
+  .icon {
+    width: 24px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .label-container {
+    width: 120px;
+    text-align: left;
+    margin-right: 16px;
+  }
+
+  .progress {
+    width: 300px;
+    margin: 0 16px;
+  }
+
+  .count {
+    width: 120px;
+  }
+`;
+
 // 后端WebSocket服务器地址
 const WS_BASE_URL = window.location.protocol === 'https:' 
   ? `wss://${window.location.hostname}:8000`
@@ -63,9 +93,9 @@ const WS_BASE_URL = window.location.protocol === 'https:'
 
 interface MonitoringStatus {
   total_emails: number;
-  processing_emails: number;
+  received_emails: number;
   processed_emails: number;
-  assigned_emails: number;
+  forwarded_emails: number;
   classification_stats: {
     [key: string]: number;
   };
@@ -92,9 +122,9 @@ const CATEGORY_ORDER = [
 const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => {
   const [status, setStatus] = useState<MonitoringStatus>({
     total_emails: 0,
-    processing_emails: 0,
+    received_emails: 0,
     processed_emails: 0,
-    assigned_emails: 0,
+    forwarded_emails: 0,
     classification_stats: {}
   });
   const [logs, setLogs] = useState<string[]>([]);
@@ -212,71 +242,75 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
       <Space direction="vertical" style={{ width: '100%' }} size={8}>
         <StyledCard $isDark={isDark}>
           <Space direction="vertical" style={{ width: '100%' }} size={4}>
-            <div>
-              <Space align="center">
-                <RobotOutlined 
-                  className="monitor-icon" 
-                  style={{ fontSize: 20, color: isDark ? '#1890ff' : '#1890ff' }}
-                  role="img"
-                  aria-label="robot"
-                  onPointerEnterCapture={() => {}}
-                  onPointerLeaveCapture={() => {}}
-                />
+            <ProgressRow>
+              <RobotOutlined 
+                className="icon"
+                style={{ color: isDark ? '#1890ff' : '#1890ff', fontSize: 20 }}
+                role="img"
+                aria-label="robot"
+                onPointerEnterCapture={() => {}}
+                onPointerLeaveCapture={() => {}}
+              />
+              <div className="label-container">
                 <Text strong>监控师</Text>
-                <Progress
-                  percent={calculateProgress(status.total_emails, status.total_emails)}
-                  status="active"
-                  style={{ width: 200 }}
-                  strokeColor={isDark ? '#1890ff' : '#1890ff'}
-                />
-                <Text>{status.total_emails} 封邮件</Text>
-              </Space>
-            </div>
-            <div>
-              <Space align="center">
-                <SyncOutlined 
-                  className="monitor-icon" 
-                  style={{ fontSize: 20, color: isDark ? '#52c41a' : '#52c41a' }}
-                  spin
-                  role="img"
-                  aria-label="sync"
-                  onPointerEnterCapture={() => {}}
-                  onPointerLeaveCapture={() => {}}
-                />
-                <Text strong>处理智能体</Text>
-                <Progress
-                  percent={calculateProgress(status.processed_emails, status.total_emails)}
-                  status="active"
-                  style={{ width: 200 }}
-                  strokeColor={isDark ? '#52c41a' : '#52c41a'}
-                />
-                <Text>
-                  {status.processed_emails}/{status.total_emails} 封邮件
-                </Text>
-              </Space>
-            </div>
-            <div>
-              <Space align="center">
-                <TeamOutlined 
-                  className="monitor-icon" 
-                  style={{ fontSize: 20, color: isDark ? '#722ed1' : '#722ed1' }}
-                  role="img"
-                  aria-label="team"
-                  onPointerEnterCapture={() => {}}
-                  onPointerLeaveCapture={() => {}}
-                />
-                <Text strong>分配任务智能体</Text>
-                <Progress
-                  percent={calculateProgress(status.assigned_emails, status.processed_emails)}
-                  status="active"
-                  style={{ width: 200 }}
-                  strokeColor={isDark ? '#722ed1' : '#722ed1'}
-                />
-                <Text>
-                  {status.assigned_emails}/{status.processed_emails} 封邮件
-                </Text>
-              </Space>
-            </div>
+              </div>
+              <Progress
+                className="progress"
+                percent={calculateProgress(status.received_emails, status.total_emails)}
+                status="active"
+                strokeColor={isDark ? '#1890ff' : '#1890ff'}
+              />
+              <div className="count">
+                <Text>{status.received_emails}/{status.total_emails} 封邮件</Text>
+              </div>
+            </ProgressRow>
+
+            <ProgressRow>
+              <SyncOutlined 
+                className="icon"
+                style={{ color: isDark ? '#52c41a' : '#52c41a', fontSize: 20 }}
+                spin
+                role="img"
+                aria-label="sync"
+                onPointerEnterCapture={() => {}}
+                onPointerLeaveCapture={() => {}}
+              />
+              <div className="label-container">
+                <Text strong>邮件分析师</Text>
+              </div>
+              <Progress
+                className="progress"
+                percent={calculateProgress(status.processed_emails, status.total_emails)}
+                status="active"
+                strokeColor={isDark ? '#52c41a' : '#52c41a'}
+              />
+              <div className="count">
+                <Text>{status.processed_emails}/{status.total_emails} 封邮件</Text>
+              </div>
+            </ProgressRow>
+
+            <ProgressRow>
+              <TeamOutlined 
+                className="icon"
+                style={{ color: isDark ? '#722ed1' : '#722ed1', fontSize: 20 }}
+                role="img"
+                aria-label="team"
+                onPointerEnterCapture={() => {}}
+                onPointerLeaveCapture={() => {}}
+              />
+              <div className="label-container">
+                <Text strong>任务分配专员</Text>
+              </div>
+              <Progress
+                className="progress"
+                percent={calculateProgress(status.forwarded_emails, status.total_emails)}
+                status="active"
+                strokeColor={isDark ? '#722ed1' : '#722ed1'}
+              />
+              <div className="count">
+                <Text>{status.forwarded_emails}/{status.total_emails} 封邮件</Text>
+              </div>
+            </ProgressRow>
           </Space>
         </StyledCard>
 

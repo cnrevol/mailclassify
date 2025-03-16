@@ -58,9 +58,9 @@ class EmailForwardingService:
             self.logger.info(f"处理分类 '{classification}' 的 {len(emails_data)} 封邮件")
             
             # 跳过 'error' 和 'unclassified' 分类
-            if classification in ['error', 'unclassified']:
-                self.logger.info(f"跳过 '{classification}' 分类的邮件")
-                continue
+            # if classification in ['error', 'unclassified']:
+            #     self.logger.info(f"跳过 '{classification}' 分类的邮件")
+            #     continue
             
             # 获取对应的 email_types
             email_types = settings.EMAIL_TYPE_MAPPING.get(classification.lower(), [])
@@ -116,6 +116,10 @@ class EmailForwardingService:
                                 message_id=email.message_id,
                                 created_at=timezone.now()
                             )
+                            
+                            # 更新邮件的转发状态
+                            email.is_forwarded = True
+                            email.save(update_fields=['is_forwarded'])
                             
                             self.logger.debug(f"创建的日志条目 ID: {log_entry.id}")
                             processing_results.append({

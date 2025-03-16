@@ -72,9 +72,17 @@ class EmailMonitorConsumer(AsyncWebsocketConsumer):
             # 获取所有邮件（包括未处理的）
             total_emails = CCEmail.objects.all()
             
-            # 获取已处理的邮件
+            # 获取已接收的邮件（所有邮件都是已接收的）
+            received_emails = total_emails.count()
+            
+            # 获取已处理（分类完成）的邮件
             processed_emails = CCEmail.objects.filter(
                 is_processed=True
+            )
+            
+            # 获取已转发的邮件
+            forwarded_emails = CCEmail.objects.filter(
+                is_forwarded=True
             )
             
             # 获取分类统计
@@ -128,16 +136,18 @@ class EmailMonitorConsumer(AsyncWebsocketConsumer):
             
             return {
                 'total_emails': total_emails.count(),
-                'processing_emails': total_emails.count() - processed_emails.count(),
+                'received_emails': received_emails,
                 'processed_emails': processed_emails.count(),
+                'forwarded_emails': forwarded_emails.count(),
                 'classification_stats': classification_stats
             }
         except Exception as e:
             logger.error(f"获取监控状态时出错: {str(e)}", exc_info=True)
             return {
                 'total_emails': 0,
-                'processing_emails': 0,
+                'received_emails': 0,
                 'processed_emails': 0,
+                'forwarded_emails': 0,
                 'classification_stats': {}
             }
     
