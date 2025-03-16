@@ -126,7 +126,7 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
       open={visible}
       onCancel={handleClose}
       footer={null}
-      width={1024}
+      width={1280}
       style={{ top: 20 }}
     >
       <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -183,11 +183,22 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
           <List
             grid={{ gutter: 16, column: 3 }}
             dataSource={Object.entries(status.classification_stats)}
-            renderItem={([category, count]) => (
-              <List.Item>
-                <Text strong>{category}:</Text> {count} 封
-              </List.Item>
-            )}
+            renderItem={([category, count]) => {
+              // 解析分类名称和转发地址
+              const match = category.match(/^(.*?)\s*\((.*?)\)$/);
+              const categoryName = match ? match[1] : category;
+              const forwardingName = match ? match[2] : '';
+              
+              return (
+                <List.Item>
+                  <Space>
+                    <Text strong>{categoryName}:</Text>
+                    <Text>{count} 封</Text>
+                    {forwardingName && <Text type="secondary">[{forwardingName}]</Text>}
+                  </Space>
+                </List.Item>
+              );
+            }}
           />
         </div>
 

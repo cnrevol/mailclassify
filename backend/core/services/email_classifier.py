@@ -43,8 +43,17 @@ class EmailClassifier:
         categories = load_email_categories()
         logger.info(f"当前可用的分类类别: {categories}")
         
+        # 获取分类规则及其描述
+        category_descriptions = {}
+        rules = CCEmailClassifyRule.objects.filter(is_active=True)
+        for rule in rules:
+            if rule.classification not in category_descriptions:
+                category_descriptions[rule.classification] = rule.description
+        
+        logger.info(f"获取到分类描述: {category_descriptions}")
+        
         # 创建 AI 代理
-        agent = EmailClassificationAgent(categories)
+        agent = EmailClassificationAgent(categories, category_descriptions)
         
         # 根据方法设置代理
         if method == 'single':

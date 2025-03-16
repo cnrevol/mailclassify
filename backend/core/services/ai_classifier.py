@@ -61,10 +61,9 @@ class EmailClassificationTool(Tool):
                 "required": True
             }
         }
-        # 使用 AUTHORIZED_TYPES 中的值
         self.output_type = "object"
-        self.available_categories: List[str] = []  # Will be set by the agent
-        self.categories_descriptions: List[str] = []  
+        self.available_categories: List[str] = []
+        self.categories_descriptions: Dict[str, str] = {}
         self.logger = WebSocketLogger(__name__, email)
         super().__init__(name=name, description=description)
         self.logger.debug(f"Initialized EmailClassificationTool: {name}")
@@ -74,6 +73,11 @@ class EmailClassificationTool(Tool):
         self.available_categories = categories
         self.logger.debug(f"Set categories: {categories}")
         
+    def set_category_descriptions(self, descriptions: Dict[str, str]) -> None:
+        """Set category descriptions"""
+        self.categories_descriptions = descriptions
+        self.logger.debug(f"Set category descriptions: {descriptions}")
+
     def forward(self, email) -> Dict[str, Any]:
         """
         分类邮件的基础方法，需要在子类中实现
@@ -108,17 +112,33 @@ class LLMClassificationTool(EmailClassificationTool):
 
             # 提取邮件内容
             subject = email.subject or ""
-            content = email.content or ""  # 使用 content 而不是 body
+            content = email.content or ""
             sender = email.sender or ""
             
             # 提取纯文本内容
             clean_content = extract_text_from_html(content)
             self.logger.debug(f"提取的纯文本内容: {clean_content[:100]}...")
             
+            # 构建分类说明
+            category_descriptions = []
+            for category in self.available_categories:
+                description = self.categories_descriptions.get(category, "")
+                if description:
+                    category_descriptions.append(f"- {category}: {description}")
+                else:
+                    category_descriptions.append(f"- {category}")
+            
             # 构建系统消息和用户消息
             system_message = {
                 "role": "system",
-                "content": f"你是一个邮件分类助手。请将邮件分类到以下类别之一：{', '.join(self.available_categories)}。请以JSON格式返回结果，包含以下字段：classification（分类结果）、confidence（置信度，0-1之间的数值）和explanation（分类理由的简短解释）。"
+                "content": f"""你是一个邮件分类助手。请将邮件分类到以下类别之一：
+
+{chr(10).join(category_descriptions)}
+
+请以JSON格式返回结果，包含以下字段：
+- classification（分类结果）
+- confidence（置信度，0-1之间的数值）
+- explanation（分类理由的简短解释）"""
             }
             
             user_message = {
@@ -437,10 +457,16 @@ class ClassifierFactory:
 
 class EmailClassificationAgent:
     """Agent for email classification using multiple models"""
-    def __init__(self, categories: List[str]):
+    def __init__(self, categories: List[str], category_descriptions: Dict[str, str] = None):
         self.categories = categories
+        self.category_descriptions = category_descriptions or {}
         self.factory = ClassifierFactory.get_instance()
         self.is_initialized = True
+        
+        # 更新分类工具的类别和描述
+        for tool in self.factory._classifiers.values():
+            tool.set_categories(categories)
+            tool.set_category_descriptions(self.category_descriptions)
         
     def setup(self, llm_provider: str = "azure", llm_instance_id: int = 1) -> None:
         """Setup is now handled by the ClassifierFactory"""

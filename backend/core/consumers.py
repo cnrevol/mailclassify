@@ -4,7 +4,7 @@ import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.conf import settings
-from .models import CCEmail, CCEmailMonitorStatus
+from .models import CCEmail, CCEmailMonitorStatus, CCEmailClassifyRule, CCForwardingAddress, CCForwardingRule
 from .services.email_monitor import EmailMonitorService
 
 logger = logging.getLogger(__name__)
@@ -65,6 +65,82 @@ class EmailMonitorConsumer(AsyncWebsocketConsumer):
                 'message': str(e)
             }))
     
+    @staticmethod
+    def get_monitoring_status():
+        """获取监控状态"""
+        try:
+            # 获取所有邮件（包括未处理的）
+            total_emails = CCEmail.objects.all()
+            
+            # 获取已处理的邮件
+            processed_emails = CCEmail.objects.filter(
+                is_processed=True
+            )
+            
+            # 获取分类统计
+            classification_stats = {}
+            rules = CCEmailClassifyRule.objects.filter(is_active=True)
+            rule_names = {rule.classification: rule.name for rule in rules}
+            
+            # 获取每个分类的转发地址
+            forwarding_addresses = {}
+            for rule in rules:
+                # 获取对应的 email_types
+                email_types = settings.EMAIL_TYPE_MAPPING.get(rule.classification.lower(), [])
+                logger.debug(f"规则 '{rule.name}' 映射的邮件类型: {email_types}")
+                
+                if not email_types:
+                    logger.warning(f"规则 '{rule.name}' 没有映射的邮件类型")
+                    continue
+                
+                # 对每个 email_type 查找转发规则和地址
+                for email_type in email_types:
+                    forwarding_rule = CCForwardingRule.objects.filter(
+                        email_type=email_type,
+                        is_active=True
+                    ).first()
+                    
+                    if forwarding_rule:
+                        addresses = CCForwardingAddress.objects.filter(
+                            rule=forwarding_rule,
+                            is_active=True
+                        ).values_list('name', flat=True)
+                        if addresses:
+                            forwarding_addresses[rule.classification] = addresses[0]
+                            logger.debug(f"规则 '{rule.name}' 的转发地址: {addresses[0]}")
+                            break  # 找到第一个有效的转发地址就跳出
+                        else:
+                            logger.warning(f"邮件类型 '{email_type}' 没有找到活动的转发地址")
+                    else:
+                        logger.warning(f"邮件类型 '{email_type}' 没有找到对应的转发规则")
+            
+            # 统计每个分类的邮件数量
+            for email in processed_emails:
+                if email.categories:  # 使用 categories 字段
+                    category_name = rule_names.get(email.categories, email.categories)
+                    forwarding_name = forwarding_addresses.get(email.categories, '')
+                    key = f"{category_name} ({forwarding_name})" if forwarding_name else category_name
+                    classification_stats[key] = classification_stats.get(key, 0) + 1
+                    
+            # 添加调试日志
+            logger.debug(f"分类统计: {classification_stats}")
+            logger.debug(f"转发地址映射: {forwarding_addresses}")
+            
+            return {
+                'total_emails': total_emails.count(),
+                'processing_emails': total_emails.count() - processed_emails.count(),
+                'processed_emails': processed_emails.count(),
+                'classification_stats': classification_stats
+            }
+        except Exception as e:
+            logger.error(f"获取监控状态时出错: {str(e)}", exc_info=True)
+            return {
+                'total_emails': 0,
+                'processing_emails': 0,
+                'processed_emails': 0,
+                'classification_stats': {}
+            }
+    
     async def monitoring_loop(self):
         """Periodic monitoring loop"""
         while True:
@@ -97,27 +173,6 @@ class EmailMonitorConsumer(AsyncWebsocketConsumer):
             
             # Wait for next check
             await asyncio.sleep(settings.EMAIL_MONITOR_INTERVAL)
-    
-    @staticmethod
-    def get_monitoring_status():
-        """Get current monitoring status"""
-        total_emails = CCEmail.objects.count()
-        processing_emails = CCEmail.objects.filter(is_processed=False).count()
-        processed_emails = CCEmail.objects.filter(is_processed=True).count()
-        
-        # Get classification stats
-        classification_stats = {}
-        for category in CCEmail.objects.exclude(categories='').values('categories').distinct():
-            category_name = category['categories']
-            count = CCEmail.objects.filter(categories=category_name).count()
-            classification_stats[category_name] = count
-        
-        return {
-            'total_emails': total_emails,
-            'processing_emails': processing_emails,
-            'processed_emails': processed_emails,
-            'classification_stats': classification_stats
-        }
     
     async def send_status(self, status):
         """Send status update to WebSocket"""
