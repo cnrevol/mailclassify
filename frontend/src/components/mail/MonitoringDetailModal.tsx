@@ -1,9 +1,60 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Modal, Progress, Space, Typography, List } from 'antd';
-import { RobotOutlined, SyncOutlined } from '@ant-design/icons';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { Modal, Progress, Space, Typography, List, Switch, Card, Tag, Divider } from 'antd';
+import { RobotOutlined, SyncOutlined, TeamOutlined } from '@ant-design/icons';
 import { message } from 'antd';
+import styled from 'styled-components';
+import { useTheme } from '../../contexts/ThemeContext';
 
 const { Title, Text } = Typography;
+
+interface ThemeProps {
+  $isDark: boolean;
+}
+
+// Styled components for theme support
+const StyledModal = styled(Modal)<ThemeProps>`
+  .ant-modal-content {
+    background: ${(props: ThemeProps) => props.$isDark ? '#1f1f1f' : '#ffffff'};
+    color: ${(props: ThemeProps) => props.$isDark ? '#ffffff' : '#000000'};
+  }
+  .ant-modal-header {
+    background: ${(props: ThemeProps) => props.$isDark ? '#1f1f1f' : '#ffffff'};
+  }
+  .ant-modal-title {
+    color: ${(props: ThemeProps) => props.$isDark ? '#ffffff' : '#000000'};
+  }
+`;
+
+const StyledCard = styled(Card)<ThemeProps>`
+  background: ${(props: ThemeProps) => props.$isDark ? '#141414' : '#f5f5f5'};
+  border: 1px solid ${(props: ThemeProps) => props.$isDark ? '#303030' : '#e8e8e8'};
+  margin-bottom: 8px;
+`;
+
+const LogsContainer = styled.div<ThemeProps>`
+  height: 250px;
+  overflow-y: auto;
+  padding: 12px;
+  background-color: ${(props: ThemeProps) => props.$isDark ? '#141414' : '#f5f5f5'};
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: ${(props: ThemeProps) => props.$isDark ? '#e1e1e1' : '#1f1f1f'};
+  border: 1px solid ${(props: ThemeProps) => props.$isDark ? '#303030' : '#e8e8e8'};
+`;
+
+const CategoryItem = styled(List.Item)<ThemeProps>`
+  padding: 8px !important;
+  background: ${(props: ThemeProps) => props.$isDark ? '#1f1f1f' : '#ffffff'};
+  border-radius: 4px;
+  margin-bottom: 4px !important;
+  border: 1px solid ${(props: ThemeProps) => props.$isDark ? '#303030' : '#e8e8e8'} !important;
+
+  &:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, ${(props: ThemeProps) => props.$isDark ? '0.45' : '0.15'});
+  }
+`;
 
 // 后端WebSocket服务器地址
 const WS_BASE_URL = window.location.protocol === 'https:' 
@@ -14,6 +65,7 @@ interface MonitoringStatus {
   total_emails: number;
   processing_emails: number;
   processed_emails: number;
+  assigned_emails: number;
   classification_stats: {
     [key: string]: number;
   };
@@ -25,16 +77,30 @@ interface Props {
   onClose: () => void;
 }
 
+// 定义分类的固定顺序
+const CATEGORY_ORDER = [
+  'Need OCR',
+  'OTC Billing',
+  'Complaint',
+  'unclassified',
+  'OTC Order',
+  'Technical Support',
+  'Angry',
+  'OTC Cash'
+];
+
 const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => {
   const [status, setStatus] = useState<MonitoringStatus>({
     total_emails: 0,
     processing_emails: 0,
     processed_emails: 0,
+    assigned_emails: 0,
     classification_stats: {}
   });
   const [logs, setLogs] = useState<string[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const { isDark } = useTheme();
 
   useEffect(() => {
     if (visible && email) {
@@ -120,25 +186,38 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
     }
   };
 
+  // 对分类统计进行排序
+  const sortedClassificationStats = Object.entries(status.classification_stats)
+    .sort((a, b) => {
+      const getIndex = (category: string) => {
+        const baseCat = category.split(' (')[0];
+        return CATEGORY_ORDER.indexOf(baseCat);
+      };
+      return getIndex(a[0]) - getIndex(b[0]);
+    });
+
   return (
-    <Modal
-      title="邮件监控详情"
+    <StyledModal
+      title={
+        <Space style={{ width: '100%' }}>
+          <Text>邮件监控详情</Text>
+        </Space>
+      }
       open={visible}
       onCancel={handleClose}
-      footer={null}
       width={1280}
-      style={{ top: 20 }}
+      footer={null}
+      $isDark={isDark}
     >
-      <Space direction="vertical" style={{ width: '100%' }} size="large">
-        {/* Progress Section */}
-        <div>
-          <Space direction="vertical" style={{ width: '100%' }}>
+      <Space direction="vertical" style={{ width: '100%' }} size={8}>
+        <StyledCard $isDark={isDark}>
+          <Space direction="vertical" style={{ width: '100%' }} size={4}>
             <div>
               <Space align="center">
                 <RobotOutlined 
                   className="monitor-icon" 
-                  style={{ fontSize: 20 }} 
-                  role="img" 
+                  style={{ fontSize: 20, color: isDark ? '#1890ff' : '#1890ff' }}
+                  role="img"
                   aria-label="robot"
                   onPointerEnterCapture={() => {}}
                   onPointerLeaveCapture={() => {}}
@@ -147,7 +226,8 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
                 <Progress
                   percent={calculateProgress(status.total_emails, status.total_emails)}
                   status="active"
-                  style={{ width: 300 }}
+                  style={{ width: 200 }}
+                  strokeColor={isDark ? '#1890ff' : '#1890ff'}
                 />
                 <Text>{status.total_emails} 封邮件</Text>
               </Space>
@@ -156,10 +236,10 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
               <Space align="center">
                 <SyncOutlined 
                   className="monitor-icon" 
-                  style={{ fontSize: 20 }} 
-                  spin 
-                  role="img" 
-                  aria-label="loading"
+                  style={{ fontSize: 20, color: isDark ? '#52c41a' : '#52c41a' }}
+                  spin
+                  role="img"
+                  aria-label="sync"
                   onPointerEnterCapture={() => {}}
                   onPointerLeaveCapture={() => {}}
                 />
@@ -167,63 +247,83 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
                 <Progress
                   percent={calculateProgress(status.processed_emails, status.total_emails)}
                   status="active"
-                  style={{ width: 300 }}
+                  style={{ width: 200 }}
+                  strokeColor={isDark ? '#52c41a' : '#52c41a'}
                 />
                 <Text>
                   {status.processed_emails}/{status.total_emails} 封邮件
                 </Text>
               </Space>
             </div>
+            <div>
+              <Space align="center">
+                <TeamOutlined 
+                  className="monitor-icon" 
+                  style={{ fontSize: 20, color: isDark ? '#722ed1' : '#722ed1' }}
+                  role="img"
+                  aria-label="team"
+                  onPointerEnterCapture={() => {}}
+                  onPointerLeaveCapture={() => {}}
+                />
+                <Text strong>分配任务智能体</Text>
+                <Progress
+                  percent={calculateProgress(status.assigned_emails, status.processed_emails)}
+                  status="active"
+                  style={{ width: 200 }}
+                  strokeColor={isDark ? '#722ed1' : '#722ed1'}
+                />
+                <Text>
+                  {status.assigned_emails}/{status.processed_emails} 封邮件
+                </Text>
+              </Space>
+            </div>
           </Space>
-        </div>
+        </StyledCard>
 
-        {/* Statistics Section */}
-        <div>
-          <Title level={5}>分类统计</Title>
+        <StyledCard $isDark={isDark}>
+          <Title level={5} style={{ marginBottom: 8 }}>分类统计</Title>
           <List
-            grid={{ gutter: 16, column: 3 }}
-            dataSource={Object.entries(status.classification_stats)}
+            grid={{ gutter: 8, column: 3 }}
+            dataSource={sortedClassificationStats}
             renderItem={([category, count]) => {
-              // 解析分类名称和转发地址
               const match = category.match(/^(.*?)\s*\((.*?)\)$/);
               const categoryName = match ? match[1] : category;
-              const forwardingName = match ? match[2] : '';
+              const assignedTeam = match ? match[2] : '';
               
               return (
-                <List.Item>
-                  <Space>
-                    <Text strong>{categoryName}:</Text>
-                    <Text>{count} 封</Text>
-                    {forwardingName && <Text type="secondary">[{forwardingName}]</Text>}
+                <CategoryItem $isDark={isDark}>
+                  <Space direction="vertical" style={{ width: '100%' }} size={2}>
+                    <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                      <Text strong>
+                        {categoryName}
+                      </Text>
+                      <Tag color={isDark ? 'blue' : 'blue'} style={{ marginInlineStart: '4px' }}>
+                        {count} 封
+                      </Tag>
+                    </Space>
+                    {assignedTeam && (
+                      <Text type="secondary" style={{ fontSize: '11px' }}>
+                        处理团队: {assignedTeam}
+                      </Text>
+                    )}
                   </Space>
-                </List.Item>
+                </CategoryItem>
               );
             }}
           />
-        </div>
+        </StyledCard>
 
-        {/* Logs Section */}
-        <div>
-          <Title level={5}>处理日志</Title>
-          <div
-            style={{
-              height: '300px',
-              overflowY: 'auto',
-              padding: '10px',
-              backgroundColor: '#f5f5f5',
-              borderRadius: '4px'
-            }}
-          >
+        <StyledCard $isDark={isDark}>
+          <Title level={5} style={{ marginBottom: 8 }}>处理日志</Title>
+          <LogsContainer $isDark={isDark}>
             {logs.map((log, index) => (
-              <div key={index} style={{ fontFamily: 'monospace' }}>
-                {log}
-              </div>
+              <div key={index}>{log}</div>
             ))}
             <div ref={logsEndRef} />
-          </div>
-        </div>
+          </LogsContainer>
+        </StyledCard>
       </Space>
-    </Modal>
+    </StyledModal>
   );
 };
 
