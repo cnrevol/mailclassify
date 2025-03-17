@@ -333,7 +333,7 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
       setTimeout(() => {
         setChangedCategories(new Set());
         setCountChanges({});
-      }, 1500);  // 与 highlight 动画时间保持一致
+      }, 2000);  // 与 highlight 动画时间保持一致
     }
 
     setPrevStats(status.classification_stats);
