@@ -230,7 +230,8 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
     <StyledModal
       title={
         <Space style={{ width: '100%' }}>
-          <Text>邮件监控详情</Text>
+         
+          <Title level={5} style={{ marginBottom: 8 }}>邮件监控详情</Title>
         </Space>
       }
       open={visible}

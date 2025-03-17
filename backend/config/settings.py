@@ -317,13 +317,13 @@ OAUTH_SETTINGS = {
 
 
 FASTTEXT_LABEL_MAP = {
-    "1": "accounting_billing",
+    "1": "billing",
     "2": "techsupport",
     "3": "festival"
 }
 
 BERT_LABEL_MAP = {
-    1: "accounting_billing",
+    1: "billing",
     2: "techsupport",
     3: "festival"
 }

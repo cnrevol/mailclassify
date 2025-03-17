@@ -13,3 +13,5 @@
 /backend/core/services/__pycache__
 /backend/core/services/__pycache__
 *.pyc
+/tool
+email_sender.log
