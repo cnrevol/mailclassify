@@ -119,6 +119,60 @@ const CATEGORY_ORDER = [
   'OTC Cash'
 ];
 
+// 添加新的样式组件
+const LogEntry = styled.div<ThemeProps>`
+  margin: 2px 0;
+  line-height: 1.6;
+
+  .highlight {
+    font-weight: bold;
+    background-color: ${props => props.$isDark ? '#1a365d' : '#e6f7ff'};
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: ${props => props.$isDark ? '#1890ff' : '#1890ff'};
+    display: inline-block;
+    margin: 1px 0;
+  }
+`;
+
+// 添加新的动画样式组件
+const AnimatedCategoryItem = styled(CategoryItem)`
+  transition: all 0.3s ease-in-out;
+
+  &.highlight {
+    animation: highlight 2s ease-out;
+  }
+
+  .count-change {
+    position: absolute;
+    top: -20px;
+    right: 10px;
+    color: #52c41a;
+    font-weight: bold;
+    animation: fadeUp 1.5s ease-out forwards;
+  }
+
+  @keyframes highlight {
+    0% {
+      background: ${props => props.$isDark ? '#722ed1' : '#d3adf7'};
+    }
+    100% {
+      background: ${props => props.$isDark ? '#1f1f1f' : '#ffffff'};
+    }
+  }
+
+  @keyframes fadeUp {
+    0% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+  }
+`;
+
 const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => {
   const [status, setStatus] = useState<MonitoringStatus>({
     total_emails: 0,
@@ -131,6 +185,11 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
   const wsRef = useRef<WebSocket | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const { isDark } = useTheme();
+
+  // 添加状态来跟踪分类数量的变化
+  const [prevStats, setPrevStats] = useState<{[key: string]: number}>({});
+  const [changedCategories, setChangedCategories] = useState<Set<string>>(new Set());
+  const [countChanges, setCountChanges] = useState<{[key: string]: number}>({});
 
   useEffect(() => {
     if (visible && email) {
@@ -225,6 +284,60 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
       };
       return getIndex(a[0]) - getIndex(b[0]);
     });
+
+  const formatLogMessage = (log: string) => {
+    // 定义需要匹配的模式，使用 [1-9]\d* 匹配 1 及以上的数字
+    const patterns = [
+      /成功获取\s*[1-9]\d*\s*封邮件/,
+      /分类完成，共分类\s*[1-9]\d*\s*封邮件/,
+      /邮件转发完成，共转发\s*[1-9]\d*\s*封邮件/,
+      /转发邮件到:\s*\[.*?\]\s*/  // 这个不需要修改因为不涉及数字
+    ];
+    
+    // 将所有模式合并成一个正则表达式
+    const combinedPattern = new RegExp('(' + patterns.map(p => p.source).join('|') + ')', 'g');
+    
+    // 分割文本并保留匹配的部分
+    const parts = log.split(combinedPattern);
+    
+    return parts.map((part, index) => {
+      // 检查当前部分是否匹配任何模式
+      const shouldHighlight = patterns.some(pattern => pattern.test(part));
+      
+      return shouldHighlight ? (
+        <span key={index} className="highlight">{part}</span>
+      ) : (
+        <span key={index}>{part}</span>
+      );
+    });
+  };
+
+  // 在状态更新时检测变化
+  useEffect(() => {
+    const newChanges: {[key: string]: number} = {};
+    const newChanged = new Set<string>();
+
+    Object.entries(status.classification_stats).forEach(([category, count]) => {
+      const prevCount = prevStats[category] || 0;
+      if (count !== prevCount) {
+        newChanged.add(category);
+        newChanges[category] = count - prevCount;
+      }
+    });
+
+    if (newChanged.size > 0) {
+      setChangedCategories(newChanged);
+      setCountChanges(newChanges);
+      
+      // 重置高亮效果的定时器时间从 1000ms 增加到 2000ms
+      setTimeout(() => {
+        setChangedCategories(new Set());
+        setCountChanges({});
+      }, 1500);  // 与 highlight 动画时间保持一致
+    }
+
+    setPrevStats(status.classification_stats);
+  }, [status.classification_stats]);
 
   return (
     <StyledModal
@@ -324,9 +437,14 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
               const match = category.match(/^(.*?)\s*\((.*?)\)$/);
               const categoryName = match ? match[1] : category;
               const assignedTeam = match ? match[2] : '';
+              const isHighlighted = changedCategories.has(category);
+              const countChange = countChanges[category];
               
               return (
-                <CategoryItem $isDark={isDark}>
+                <AnimatedCategoryItem 
+                  $isDark={isDark}
+                  className={isHighlighted ? 'highlight' : ''}
+                >
                   <Space direction="vertical" style={{ width: '100%' }} size={2}>
                     <Space style={{ width: '100%', justifyContent: 'space-between' }}>
                       <Text strong>
@@ -341,8 +459,11 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
                         处理团队: {assignedTeam}
                       </Text>
                     )}
+                    {countChange > 0 && (
+                      <div className="count-change">+{countChange}</div>
+                    )}
                   </Space>
-                </CategoryItem>
+                </AnimatedCategoryItem>
               );
             }}
           />
@@ -352,7 +473,9 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
           <Title level={5} style={{ marginBottom: 8 }}>处理日志</Title>
           <LogsContainer $isDark={isDark}>
             {logs.map((log, index) => (
-              <div key={index}>{log}</div>
+              <LogEntry key={index} $isDark={isDark}>
+                {formatLogMessage(log)}
+              </LogEntry>
             ))}
             <div ref={logsEndRef} />
           </LogsContainer>

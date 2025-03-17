@@ -377,8 +377,8 @@ CHANNEL_LAYERS = {
 }
 
 # Email monitoring settings
-EMAIL_MONITOR_INTERVAL = 10  # seconds
-EMAIL_MONITOR_CHECK_INTERVAL = 10  # minutes
+EMAIL_MONITOR_INTERVAL = 1  # seconds
+EMAIL_MONITOR_CHECK_INTERVAL = 1  # minutes
 
 # AI模型配置
 AI_CONFIDENCE_THRESHOLD = 0.7  # AI模型置信度阈值
