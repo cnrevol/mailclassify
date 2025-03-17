@@ -280,9 +280,21 @@ const MonitoringDetailModal: React.FC<Props> = ({ visible, email, onClose }) => 
     .sort((a, b) => {
       const getIndex = (category: string) => {
         const baseCat = category.split(' (')[0];
-        return CATEGORY_ORDER.indexOf(baseCat);
+        const index = CATEGORY_ORDER.indexOf(baseCat);
+        // 如果分类不在预定义列表中，返回一个较大的数，确保它们排在最后
+        return index === -1 ? 999 : index;
       };
-      return getIndex(a[0]) - getIndex(b[0]);
+      
+      const indexA = getIndex(a[0]);
+      const indexB = getIndex(b[0]);
+      
+      // 首先按照预定义顺序排序
+      if (indexA !== indexB) {
+        return indexA - indexB;
+      }
+      
+      // 如果顺序相同，则按照分类名称字母顺序排序
+      return a[0].localeCompare(b[0]);
     });
 
   const formatLogMessage = (log: string) => {

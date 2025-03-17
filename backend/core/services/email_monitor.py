@@ -144,16 +144,19 @@ class EmailMonitorService:
             dict: 处理结果
         """
         try:
+            # 创建 WebSocketLogger
+            ws_logger = WebSocketLogger(__name__, email)
+            
             # 获取监控状态
             monitor_status = CCEmailMonitorStatus.objects.filter(email=email).first()
             if not monitor_status or not monitor_status.is_monitoring:
-                logger.info(f"邮箱 {email} 未开启监控，跳过检查")
+                ws_logger.info(f"邮箱 {email} 未开启监控，跳过检查")
                 return {'status': 'skipped', 'reason': 'monitoring_not_active'}
             
             # 获取邮箱配置
             user_mail = CCUserMailInfo.objects.filter(email=email, is_active=True).first()
             if not user_mail:
-                logger.error(f"未找到邮箱配置: {email}")
+                ws_logger.error(f"未找到邮箱配置: {email}")
                 return {'status': 'error', 'error': 'email_config_not_found'}
             
             # 计算需要检查的时间范围
@@ -163,7 +166,7 @@ class EmailMonitorService:
                 time_diff = (now - monitor_status.last_check_time).total_seconds() / 60
                 # 如果距离上次检查时间不足指定间隔，则跳过
                 if time_diff < check_interval_minutes:
-                    logger.debug(f"距离上次检查时间 {time_diff:.1f} 分钟，未达到检查间隔 {check_interval_minutes} 分钟，跳过")
+                    ws_logger.debug(f"距离上次检查时间 {time_diff:.1f} 分钟，未达到检查间隔 {check_interval_minutes} 分钟，跳过")
                     return {'status': 'skipped', 'reason': 'check_interval_not_reached'}
                 
                 # 计算需要获取的邮件时间范围（小时）
@@ -174,10 +177,10 @@ class EmailMonitorService:
             
             # 从 Outlook 获取邮件
             # logger.info(f"开始从 Outlook 获取 {email} 的邮件，时间范围: {hours:.1f}小时")
-            logger.info(f"开始从 Outlook: {email} 检查是否有新的邮件。")
+            ws_logger.info(f"开始从 Outlook: {email} 检查是否有新的邮件。")
             mail_service = OutlookMailService(user_mail)
             emails = mail_service.fetch_emails(hours=int(hours), skip_processed=True)
-            logger.info(f"成功获取 {len(emails)} 封邮件")
+            ws_logger.info(f"成功获取 {len(emails)} 封邮件")
             
             # 更新最后检查时间
             monitor_status.last_check_time = now
@@ -185,17 +188,21 @@ class EmailMonitorService:
             monitor_status.save()
             
             if not emails:
-                logger.info("没有新邮件需要分类")
+                ws_logger.info("没有新邮件需要分类")
                 return {
                     'status': 'success',
                     'message': '没有新邮件需要分类',
                     'classified_count': 0
                 }
             
-            # 对邮件进行分类
+            # 对邮件进行分类，传入 WebSocketLogger
             method = settings.DEFAULT_EMAIL_CLASSIFICATION_METHOD
-            logger.info(f"开始使用 {method} 方法对邮件进行分类")
-            results = EmailClassifier.classify_emails(emails, method=method)
+            ws_logger.info(f"开始使用 {method} 方法对邮件进行分类")
+            results = EmailClassifier.classify_emails(
+                emails=emails, 
+                method=method,
+                ws_logger=ws_logger
+            )
             
             # 统计分类结果
             total_classified = 0
@@ -243,20 +250,20 @@ class EmailMonitorService:
                         ]
                         
                         email_obj.save(update_fields=update_fields)
-                        logger.debug(f"邮件 '{email_obj.subject[:30]}...' 分类为 '{classification}'，方法: {method}")
+                        ws_logger.debug(f"邮件 '{email_obj.subject[:30]}...' 分类为 '{classification}'，方法: {method}")
                     else:
-                        logger.warning(f"邮件数据中缺少 'email' 字段: {data}")
+                        ws_logger.warning(f"邮件数据中缺少 'email' 字段: {data}")
             
             # 更新总分类邮件数
             monitor_status.total_classified_emails += total_classified
             monitor_status.save()
             
-            logger.info(f"分类完成，共分类 {total_classified} 封邮件")
+            ws_logger.info(f"分类完成，共分类 {total_classified} 封邮件")
             
             # 处理邮件转发
             forwarding_results = []
             if total_classified > 0:
-                logger.info("开始处理邮件转发")
+                ws_logger.info("开始处理邮件转发")
                 # 创建 Graph API 服务
                 from core.services.graph_service import GraphService
                 graph_service = GraphService(user_mail)
@@ -274,9 +281,9 @@ class EmailMonitorService:
                         if email_obj:
                             email_obj.is_forwarded = True
                             email_obj.save(update_fields=['is_forwarded'])
-                            logger.debug(f"邮件 '{email_obj.subject[:30]}...' 已标记为已转发")
+                            ws_logger.debug(f"邮件 '{email_obj.subject[:30]}...' 已标记为已转发")
                 
-                logger.info(f"邮件转发完成，共转发 {len(forwarding_results)} 封邮件")
+                ws_logger.info(f"邮件转发完成，共转发 {len(forwarding_results)} 封邮件")
             
             return {
                 'status': 'success',
@@ -288,7 +295,7 @@ class EmailMonitorService:
             }
             
         except Exception as e:
-            logger.error(f"检查新邮件失败: {str(e)}", exc_info=True)
+            ws_logger.error(f"检查新邮件失败: {str(e)}", exc_info=True)
             return {
                 'status': 'error',
                 'error': str(e)

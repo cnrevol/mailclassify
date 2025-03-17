@@ -23,13 +23,14 @@ class EmailClassifier:
         return cls._factory
 
     @classmethod
-    def classify_emails(cls, emails: List[CCEmail], method: str = 'stepgo') -> Dict[str, List[Dict[str, Any]]]:
+    def classify_emails(cls, emails: List[CCEmail], method: str = 'stepgo', ws_logger = None) -> Dict[str, List[Dict[str, Any]]]:
         """
         对邮件进行分类
         
         Args:
             emails: 要分类的邮件列表
             method: 分类方法 ('stepgo', 'single', 'ensemble')
+            ws_logger: WebSocket日志记录器
             
         Returns:
             分类结果字典，键为分类名称，值为邮件列表
@@ -37,6 +38,9 @@ class EmailClassifier:
         if not emails:
             return {}
             
+        # 使用传入的 WebSocketLogger 或默认 logger
+        logger = ws_logger or logging.getLogger(__name__)
+        
         logger.info(f"开始对 {len(emails)} 封邮件进行分类，使用方法: {method}")
         
         # 重新加载分类类别
@@ -77,15 +81,15 @@ class EmailClassifier:
         
         for email in emails:
             try:
-                logger.debug(f"开始处理邮件: {email.subject}...")
+                logger.info(f"开始处理邮件: {email.subject[:50]}...")
                 
                 # 根据方法进行分类
                 if method == 'stepgo':
-                    result = cls._stepgo_classify(email, agent)
+                    result = cls._stepgo_classify(email, agent, logger)
                 elif method == 'single':
-                    result = cls._single_classify(email, agent)
+                    result = cls._single_classify(email, agent, logger)
                 else:  # ensemble
-                    result = cls._ensemble_classify(email, agent)
+                    result = cls._ensemble_classify(email, agent, logger)
                 
                 # 处理分类结果
                 classification = result.get('classification', 'unclassified')
@@ -100,7 +104,7 @@ class EmailClassifier:
                 })
                 
                 processed_emails += 1
-                logger.debug(f"处理进度: {processed_emails}/{total_emails}")
+                logger.info(f"处理进度: {processed_emails}/{total_emails}")
                 
             except Exception as e:
                 logger.error(f"处理邮件时出错: {str(e)}", exc_info=True)
@@ -122,13 +126,14 @@ class EmailClassifier:
         return results
     
     @classmethod
-    def _stepgo_classify(cls, email: CCEmail, agent: EmailClassificationAgent) -> Dict[str, Any]:
+    def _stepgo_classify(cls, email: CCEmail, agent: EmailClassificationAgent, logger: logging.Logger) -> Dict[str, Any]:
         """
         使用步进方法对邮件进行分类
         
         Args:
             email: 要分类的邮件
             agent: AI 代理实例
+            logger: 日志记录器
             
         Returns:
             分类结果
@@ -145,7 +150,7 @@ class EmailClassifier:
         
         # 第二步：使用 FastText 进行分类
         logger.info(f"步进分类：使用 FastText 进行分类 - 邮件 '{email.subject[:50]}...'")
-        fasttext_result = cls._single_classify(email, agent, model='fasttext')
+        fasttext_result = cls._single_classify(email, agent, model='fasttext', logger=logger)
         
         if fasttext_result['confidence'] >= settings.FASTTEXT_THRESHOLD:
             logger.info(f"步进分类：FastText 分类结果 '{fasttext_result['classification']}' 置信度 {fasttext_result['confidence']} 达到阈值")
@@ -153,7 +158,7 @@ class EmailClassifier:
         
         # 第三步：使用 LLM 进行分类
         logger.info(f"步进分类：使用 LLM 进行分类 - 邮件 '{email.subject[:50]}...'")
-        llm_result = cls._single_classify(email, agent, model='llm')
+        llm_result = cls._single_classify(email, agent, model='llm', logger=logger)
         
         if llm_result['confidence'] >= settings.LLM_THRESHOLD:
             logger.info(f"步进分类：邮件通过 LLM 成功分类为 '{llm_result['classification']}'，置信度: {llm_result['confidence']}")
@@ -169,7 +174,7 @@ class EmailClassifier:
         }
     
     @classmethod
-    def _single_classify(cls, email: CCEmail, agent: EmailClassificationAgent, model: Optional[str] = None) -> Dict[str, Any]:
+    def _single_classify(cls, email: CCEmail, agent: EmailClassificationAgent, model: Optional[str] = None, logger: Optional[logging.Logger] = None) -> Dict[str, Any]:
         """
         使用单个模型对邮件进行分类
         
@@ -177,12 +182,14 @@ class EmailClassifier:
             email: 要分类的邮件
             agent: AI 代理实例
             model: 要使用的模型名称
+            logger: 日志记录器
             
         Returns:
             分类结果
         """
         # 确保 model 是字符串
         method = model if model is not None else settings.DEFAULT_AI_MODEL
+        logger = logger or logging.getLogger(__name__)
         logger.info(f"使用 {method} 方法对邮件 '{email.subject[:50]}...' 进行分类")
         result = agent.classify_email(email, method=method)
         # 确保 rule_name 是字符串
@@ -191,13 +198,14 @@ class EmailClassifier:
         return result
     
     @classmethod
-    def _ensemble_classify(cls, email: CCEmail, agent: EmailClassificationAgent) -> Dict[str, Any]:
+    def _ensemble_classify(cls, email: CCEmail, agent: EmailClassificationAgent, logger: logging.Logger) -> Dict[str, Any]:
         """
         使用集成方法对邮件进行分类
         
         Args:
             email: 要分类的邮件
             agent: AI 代理实例
+            logger: 日志记录器
             
         Returns:
             分类结果
@@ -205,7 +213,7 @@ class EmailClassifier:
         # 获取所有模型的分类结果
         results = []
         for model in settings.AI_MODELS:
-            result = cls._single_classify(email, agent, model=model)
+            result = cls._single_classify(email, agent, model=model, logger=logger)
             results.append(result)
         
         # 统计各分类的票数

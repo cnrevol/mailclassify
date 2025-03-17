@@ -4,6 +4,7 @@ import asyncio
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from typing import Optional
+from datetime import datetime
 
 
 class WebSocketLogHandler(logging.Handler):
@@ -66,21 +67,29 @@ class WebSocketLogger:
                 ))
                 self.logger.addHandler(ws_handler)
     
-    def debug(self, msg, *args, **kwargs):
+    def _log_and_send(self, level: str, message: str, *args, **kwargs):
+        """记录日志并通过WebSocket发送"""
+        # 首先通过标准日志记录
+        getattr(self.logger, level)(message, *args, **kwargs)
+        
+        # 然后通过 WebSocketLogHandler 发送
+        # WebSocketLogHandler 已经包含了异步到同步的转换，所以这里不需要额外的异步操作
+    
+    def debug(self, message: str, *args, **kwargs):
         """Log debug message"""
-        self.logger.debug(msg, *args, **kwargs)
+        self._log_and_send('debug', message, *args, **kwargs)
     
-    def info(self, msg, *args, **kwargs):
+    def info(self, message: str, *args, **kwargs):
         """Log info message"""
-        self.logger.info(msg, *args, **kwargs)
+        self._log_and_send('info', message, *args, **kwargs)
     
-    def warning(self, msg, *args, **kwargs):
+    def warning(self, message: str, *args, **kwargs):
         """Log warning message"""
-        self.logger.warning(msg, *args, **kwargs)
+        self._log_and_send('warning', message, *args, **kwargs)
     
-    def error(self, msg, *args, **kwargs):
+    def error(self, message: str, *args, **kwargs):
         """Log error message"""
-        self.logger.error(msg, *args, **kwargs)
+        self._log_and_send('error', message, *args, **kwargs)
     
     def critical(self, msg, *args, **kwargs):
         """Log critical message"""

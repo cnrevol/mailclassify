@@ -172,11 +172,6 @@ class EmailMonitorConsumer(AsyncWebsocketConsumer):
                 status = await database_sync_to_async(self.get_monitoring_status)()
                 await self.send_status(status)
                 
-                # Send log message if available
-                if result.get('message'):
-                    # 不直接发送消息，而是通过logger发送，这样会自动添加时间戳
-                    logger.info(result['message'])
-                
             except Exception as e:
                 logger.error(f"Error in monitoring loop: {str(e)}", exc_info=True)
                 await self.send_log(f"Error: {str(e)}")

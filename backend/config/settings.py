@@ -377,7 +377,7 @@ CHANNEL_LAYERS = {
 }
 
 # Email monitoring settings
-EMAIL_MONITOR_INTERVAL = 1  # 从1秒改为0.1秒，使状态更新更频繁
+EMAIL_MONITOR_INTERVAL = 0.1  # 从1秒改为0.1秒，使状态更新更频繁
 EMAIL_MONITOR_CHECK_INTERVAL = 0.5  # 从1分钟改为0.5分钟，更频繁地检查新邮件
 
 # AI模型配置
