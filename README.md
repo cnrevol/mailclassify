@@ -1,5 +1,24 @@
 # mailclassify
 
+# 20230318
+
+EmailMonitorConsumer (consumers.py)
+└── monitoring_loop
+    └── EmailMonitorService.check_new_emails (email_monitor.py)
+        ├── OutlookMailService.fetch_emails
+        ├── EmailClassifier.classify_emails (email_classifier.py)
+        │   ├── load_email_categories
+        │   └── EmailClassificationAgent
+        │       ├── _stepgo_classify
+        │       ├── _single_classify
+        │       └── _ensemble_classify
+        └── EmailForwardingService.process_classified_emails (email_forwarding.py)
+            └── mail_service.forward_email
+
+
+
+
+
 
 # 1. 激活虚拟环境
 cd C:\worksapce\aifree\ContentsClassification\project\prj1
