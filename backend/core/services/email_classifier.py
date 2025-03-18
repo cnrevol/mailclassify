@@ -352,3 +352,58 @@ class EmailClassifier:
             'rule_name': 'Rule-based Classification',
             'explanation': 'No matching rules found'
         } 
+    @classmethod
+    def classify_single_email(cls, email: CCEmail, method: str = 'stepgo', ws_logger = None) -> Dict[str, Any]:
+        """
+        对单个邮件进行分类
+        
+        Args:
+            email: 要分类的邮件
+            method: 分类方法
+            ws_logger: WebSocket日志记录器
+            
+        Returns:
+            分类结果
+        """
+        # 使用传入的 WebSocketLogger 或创建新的
+        logger = ws_logger or WebSocketLogger(f"{__name__}.{email.message_id}", email.user_mail.email)
+        
+        try:
+            # 重新加载分类类别
+            categories = load_email_categories()
+            
+            # 获取分类规则及其描述
+            category_descriptions = {}
+            rules = CCEmailClassifyRule.objects.filter(is_active=True)
+            for rule in rules:
+                if rule.classification not in category_descriptions:
+                    category_descriptions[rule.classification] = rule.description
+            
+            # 创建 AI 代理
+            agent = EmailClassificationAgent(categories, category_descriptions)
+            
+            # 根据方法设置代理
+            if method == 'single':
+                model = settings.DEFAULT_AI_MODEL
+                agent.setup(model)
+            else:
+                agent.setup()
+            
+            # 进行分类
+            if method == 'stepgo':
+                result = cls._stepgo_classify(email, agent, logger)
+            elif method == 'single':
+                result = cls._single_classify(email, agent, logger)
+            else:
+                result = cls._ensemble_classify(email, agent, logger)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"分类邮件时出错: {str(e)}", exc_info=True)
+            return {
+                'classification': 'error',
+                'confidence': 0.0,
+                'rule_name': 'Error',
+                'explanation': str(e)
+            }

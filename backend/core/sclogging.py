@@ -5,6 +5,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from typing import Optional
 from datetime import datetime
+import threading
 
 
 class WebSocketLogHandler(logging.Handler):
@@ -47,33 +48,49 @@ class WebSocketLogHandler(logging.Handler):
 class WebSocketLogger:
     """Wrapper class for logging with WebSocket support"""
     
+    _instance_lock = threading.Lock()
+    _instances = {}
+    
+    def __new__(cls, name: str, email: Optional[str] = None):
+        # 使用线程安全的单例模式
+        key = f"{name}:{email}"
+        with cls._instance_lock:
+            if key not in cls._instances:
+                cls._instances[key] = super().__new__(cls)
+            return cls._instances[key]
+    
     def __init__(self, name: str, email: Optional[str] = None):
-        self.logger = logging.getLogger(name)
-        self.email = email
-        
-        if email:
-            # Check if WebSocket handler already exists
-            has_ws_handler = any(
-                isinstance(handler, WebSocketLogHandler) and handler.email == email
-                for handler in self.logger.handlers
-            )
+        if not hasattr(self, 'initialized'):
+            self.logger = logging.getLogger(name)
+            self.email = email
+            self.local = threading.local()
             
-            if not has_ws_handler:
-                # Add WebSocket handler only if it doesn't exist
-                ws_handler = WebSocketLogHandler(email)
-                ws_handler.setFormatter(logging.Formatter(
-                    '[%(asctime)s] %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S'
-                ))
-                self.logger.addHandler(ws_handler)
+            if email:
+                # Check if WebSocket handler already exists
+                has_ws_handler = any(
+                    isinstance(handler, WebSocketLogHandler) and handler.email == email
+                    for handler in self.logger.handlers
+                )
+                
+                if not has_ws_handler:
+                    # Add WebSocket handler only if it doesn't exist
+                    ws_handler = WebSocketLogHandler(email)
+                    ws_handler.setFormatter(logging.Formatter(
+                        '[%(asctime)s] %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S'
+                    ))
+                    self.logger.addHandler(ws_handler)
+            
+            self.initialized = True
     
     def _log_and_send(self, level: str, message: str, *args, **kwargs):
         """记录日志并通过WebSocket发送"""
-        # 首先通过标准日志记录
-        getattr(self.logger, level)(message, *args, **kwargs)
+        # 添加线程标识到消息中
+        thread_name = threading.current_thread().name
+        formatted_message = f"[Thread-{thread_name}] {message}"
         
-        # 然后通过 WebSocketLogHandler 发送
-        # WebSocketLogHandler 已经包含了异步到同步的转换，所以这里不需要额外的异步操作
+        # 通过标准日志记录
+        getattr(self.logger, level)(formatted_message, *args, **kwargs)
     
     def debug(self, message: str, *args, **kwargs):
         """Log debug message"""
