@@ -16,6 +16,13 @@ EmailMonitorConsumer (consumers.py)
             └── mail_service.forward_email
 
 
+graph TD
+    A[EmailMonitorConsumer.monitoring_loop] --> B[EmailMonitorService.check_new_emails]
+    B --> C[OutlookMailService.fetch_emails]
+    B --> D[EmailClassifier.classify_emails]
+    D --> E[EmailClassificationAgent]
+    B --> F[EmailForwardingService.process_classified_emails]
+    F --> G[GraphService.forward_email]
 
 
 
